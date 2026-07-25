@@ -163,7 +163,7 @@ function App() {
         </section>
       </main>
 
-      <footer><a className="brand" href="#inicio" aria-label="bapbap, inicio"><img src="/logo-horizontal.svg" alt="bapbap" /></a><p>Pollo coreano con arroz.</p><a href="https://www.instagram.com/bapbap.cl?igsh=MTRocjYzY2NydWZhdA==" target="_blank" rel="noreferrer">Instagram ↗</a></footer>
+      <footer><p>Pollo coreano</p><a className="brand" href="#inicio" aria-label="bapbap, inicio"><img src="/logo-footer.svg" alt="bapbap" /></a><a href="https://www.instagram.com/bapbap.cl?igsh=MTRocjYzY2NydWZhdA==" target="_blank" rel="noreferrer">Instagram ↗</a></footer>
 
       <button className="mobile-cart" onClick={() => setCartOpen(true)}><span>Tu pedido ({cartCount})</span><strong>{formatPrice(cartTotal)}</strong></button>
 
