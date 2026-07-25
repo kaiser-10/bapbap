@@ -39,6 +39,18 @@ function formatPrice(price) {
   return pesos.format(price);
 }
 
+function PhotoPlaceholder({ label }) {
+  return (
+    <div className="photo-placeholder">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true">
+        <path d="M4 7h3l1.5-2h7L17 7h3a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1Z" strokeLinejoin="round" />
+        <circle cx="12" cy="13" r="3.4" />
+      </svg>
+      <span>{label}</span>
+    </div>
+  );
+}
+
 function App() {
   const [cart, setCart] = useState([]);
   const [cartOpen, setCartOpen] = useState(false);
@@ -114,7 +126,7 @@ function App() {
     <>
       <header className="site-header">
         <a className="brand" href="#inicio" aria-label="bapbap, inicio">
-          <strong>bapbap</strong>
+          <img src="/logo-horizontal.svg" alt="bapbap" />
         </a>
         <nav aria-label="Navegación principal"><a href="#menu">Menú</a><a href="#como-pedir">Cómo pedir</a></nav>
         <button className="cart-button" onClick={() => setCartOpen(true)} aria-label="Abrir carrito">
@@ -125,15 +137,14 @@ function App() {
       <main>
         <section className="hero" id="inicio">
           <div className="hero-copy">
+            <img className="hero-logo" src="/logo-featured.svg" alt="bapbap" />
             <p className="eyebrow">POLLO COREANO EN PUENTE ALTO</p>
             <h1>Crujiente por fuera.<br /><em>Inolvidable</em> por dentro.</h1>
             <p>Pollo frito coreano bañado en salsa, servido con arroz recién preparado.</p>
             <a className="primary-button" href="#menu">Pide ahora <span>↓</span></a>
           </div>
           <div className="hero-image" aria-label="Pollo coreano con arroz">
-            <div className="sun" /><div className="plate"><div className="rice" /><i /><i /><i /></div>
-            <span className="spark one">✦</span><span className="spark two">✦</span>
-            <b>POLLO<br />COREANO</b>
+            <PhotoPlaceholder label="Foto próximamente" />
           </div>
         </section>
 
@@ -152,7 +163,7 @@ function App() {
         </section>
       </main>
 
-      <footer><a className="brand" href="#inicio"><strong>bapbap</strong></a><p>Pollo coreano con arroz.</p><a href="https://www.instagram.com/bapbap.cl?igsh=MTRocjYzY2NydWZhdA==" target="_blank" rel="noreferrer">Instagram ↗</a></footer>
+      <footer><a className="brand" href="#inicio" aria-label="bapbap, inicio"><img src="/logo-horizontal.svg" alt="bapbap" /></a><p>Pollo coreano con arroz.</p><a href="https://www.instagram.com/bapbap.cl?igsh=MTRocjYzY2NydWZhdA==" target="_blank" rel="noreferrer">Instagram ↗</a></footer>
 
       <button className="mobile-cart" onClick={() => setCartOpen(true)}><span>Tu pedido ({cartCount})</span><strong>{formatPrice(cartTotal)}</strong></button>
 
@@ -172,7 +183,7 @@ function ProductCard({ product, onAdd }) {
   function toggleExtra(id) { setExtraIds((selected) => selected.includes(id) ? selected.filter((item) => item !== id) : [...selected, id]); }
 
   return <article className="product-card">
-    <div className="food-art"><div className="bowl"><span /><i /><i /></div><p>{product.tag}</p></div>
+    <div className="food-art"><PhotoPlaceholder label="Foto próximamente" /><p>{product.tag}</p></div>
     <div className="product-content"><div className="product-top"><h3>{product.name}</h3><strong>{formatPrice(product.price)}</strong></div><p>{product.description}</p>
       <fieldset><legend>Elige tu salsa</legend><div className="sauce-list">{sauces.map((item) => <label key={item.id} className={sauceId === item.id ? "selected" : ""}><input type="radio" name={`sauce-${product.id}`} checked={sauceId === item.id} onChange={() => setSauceId(item.id)} /><span>{item.name}<small>{item.detail}</small></span></label>)}</div></fieldset>
       <fieldset><legend>Agrega extras</legend>{extras.map((extra) => <label className="extra" key={extra.id}><input type="checkbox" checked={extraIds.includes(extra.id)} onChange={() => toggleExtra(extra.id)} /><span>{extra.name}</span><b>+ {formatPrice(extra.price)}</b></label>)}</fieldset>
