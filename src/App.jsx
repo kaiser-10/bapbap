@@ -143,8 +143,8 @@ function App() {
             <p>Pollo frito coreano bañado en salsa, servido con arroz recién preparado.</p>
             <a className="primary-button" href="#menu">Pide ahora <span>↓</span></a>
           </div>
-          <div className="hero-image" aria-label="Pollo coreano con arroz">
-            <PhotoPlaceholder label="Foto próximamente" />
+          <div className="hero-image">
+            <img src="/photos/pollo-hero.jpg" alt="Pollo coreano con arroz" />
           </div>
         </section>
 
