@@ -14,7 +14,25 @@ const statusLabels = {
 
 const pesos = new Intl.NumberFormat("es-CL", { style: "currency", currency: "CLP", maximumFractionDigits: 0 });
 
+function formatTime(date) {
+  return date.toLocaleTimeString("es-CL", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+}
+
+function formatDateTime(date) {
+  return new Date(date).toLocaleString("es-CL", { dateStyle: "short", timeStyle: "short" });
+}
+
+function useClock() {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(id);
+  }, []);
+  return now;
+}
+
 function Admin() {
+  const now = useClock();
   const [session, setSession] = useState(null);
   const [orders, setOrders] = useState([]);
   const [selected, setSelected] = useState(null);
@@ -53,12 +71,12 @@ function Admin() {
   const newCount = orders.filter((order) => order.status === "nuevo").length;
 
   return <main className="admin-shell">
-    <header className="admin-header"><a className="brand" href="/"><strong>bapbap</strong></a><div><span className="admin-email">{session.user.email}</span><button className="link-button" onClick={() => supabase.auth.signOut()}>Cerrar sesión</button></div></header>
+    <header className="admin-header"><a className="brand" href="/"><strong>bapbap</strong></a><div><span className="admin-clock">{formatTime(now)}</span><span className="admin-email">{session.user.email}</span><button className="link-button" onClick={() => supabase.auth.signOut()}>Cerrar sesión</button></div></header>
     <section className="admin-intro"><div><p className="eyebrow">ADMINISTRACIÓN</p><h1>Pedidos</h1><p>Revisa, confirma y prepara cada pedido desde un solo lugar.</p></div><button className="refresh-button" onClick={loadOrders}>↻ Actualizar</button></section>
     <section className="admin-stats"><div><span>Total</span><strong>{orders.length}</strong></div><div><span>Nuevos</span><strong>{newCount}</strong></div><div><span>En preparación</span><strong>{orders.filter((order) => order.status === "preparando").length}</strong></div></section>
     <div className="filters">{["todos", "nuevo", "confirmado", "preparando", "enviado", "entregado"].map((item) => <button className={filter === item ? "active" : ""} onClick={() => setFilter(item)} key={item}>{item === "todos" ? "Todos" : statusLabels[item]}</button>)}</div>
     {error && <p className="admin-error">{error}</p>}
-    {loading ? <p className="loading">Cargando pedidos…</p> : <section className="order-layout"><div className="order-list">{visibleOrders.length === 0 ? <p className="empty-orders">No hay pedidos en esta lista.</p> : visibleOrders.map((order) => <button className={`order-row ${selected?.id === order.id ? "selected" : ""}`} onClick={() => setSelected(order)} key={order.id}><div><span className={`status ${order.status}`}>{statusLabels[order.status]}</span><strong>{order.customer_name}</strong><small>{new Date(order.created_at).toLocaleString("es-CL", { dateStyle: "short", timeStyle: "short" })}</small></div><b>{pesos.format(order.total)}</b></button>)}</div><OrderDetail order={selected} onStatusChange={updateStatus} /></section>}
+    {loading ? <p className="loading">Cargando pedidos…</p> : <section className="order-layout"><div className="order-list">{visibleOrders.length === 0 ? <p className="empty-orders">No hay pedidos en esta lista.</p> : visibleOrders.map((order) => <button className={`order-row ${selected?.id === order.id ? "selected" : ""}`} onClick={() => setSelected(order)} key={order.id}><div><span className={`status ${order.status}`}>{statusLabels[order.status]}</span><strong>{order.customer_name}</strong><small>{formatDateTime(order.created_at)}</small></div><b>{pesos.format(order.total)}</b></button>)}</div><OrderDetail order={selected} onStatusChange={updateStatus} /></section>}
   </main>;
 }
 
@@ -70,7 +88,7 @@ function Login() {
 
 function OrderDetail({ order, onStatusChange }) {
   if (!order) return <aside className="order-detail placeholder"><p>Selecciona un pedido para ver sus detalles.</p></aside>;
-  return <aside className="order-detail"><div className="detail-heading"><div><span className={`status ${order.status}`}>{statusLabels[order.status]}</span><h2>{order.customer_name}</h2></div><strong>{pesos.format(order.total)}</strong></div><section><h3>Contacto</h3><p>{order.customer_phone}</p></section><section><h3>{order.delivery_method}</h3><p>{order.delivery_method === "Delivery" ? order.delivery_address : "Retiro coordinado"}</p></section><section><h3>Pedido</h3>{order.items.map((item, index) => <div className="item" key={index}><strong>{item.quantity}× {item.product}</strong><span>{item.sauce}{item.extras?.length ? ` · ${item.extras.join(", ")}` : ""}</span></div>)}</section><section><h3>Actualizar estado</h3><select value={order.status} onChange={(event) => onStatusChange(order, event.target.value)}>{Object.entries(statusLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></section></aside>;
+  return <aside className="order-detail"><div className="detail-heading"><div><span className={`status ${order.status}`}>{statusLabels[order.status]}</span><h2>{order.customer_name}</h2><small>{formatDateTime(order.created_at)}</small></div><strong>{pesos.format(order.total)}</strong></div><section><h3>Contacto</h3><p>{order.customer_phone}</p></section><section><h3>{order.delivery_method}</h3><p>{order.delivery_method === "Delivery" ? order.delivery_address : "Retiro coordinado"}</p></section><section><h3>Pedido</h3>{order.items.map((item, index) => <div className="item" key={index}><strong>{item.quantity}× {item.product}</strong><span>{item.sauce}{item.extras?.length ? ` · ${item.extras.join(", ")}` : ""}</span></div>)}</section><section><h3>Actualizar estado</h3><select value={order.status} onChange={(event) => onStatusChange(order, event.target.value)}>{Object.entries(statusLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></section></aside>;
 }
 
 createRoot(document.getElementById("root")).render(<Admin />);
