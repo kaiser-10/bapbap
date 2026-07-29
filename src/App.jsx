@@ -8,6 +8,7 @@ const products = [
     description: "Pollo coreano crocante con arroz recién preparado.",
     price: 6990,
     tag: "Para una persona",
+    photo: "/photos/pollo-individual.jpg",
   },
   {
     id: "share",
@@ -15,6 +16,7 @@ const products = [
     description: "Doble porción de pollo coreano con arroz para dos.",
     price: 11990,
     tag: "Para dos personas",
+    photo: "/photos/pollo-compartir.jpg",
   },
 ];
 
@@ -39,18 +41,6 @@ const pesos = new Intl.NumberFormat("es-CL", {
 
 function formatPrice(price) {
   return pesos.format(price);
-}
-
-function PhotoPlaceholder({ label }) {
-  return (
-    <div className="photo-placeholder">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true">
-        <path d="M4 7h3l1.5-2h7L17 7h3a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1Z" strokeLinejoin="round" />
-        <circle cx="12" cy="13" r="3.4" />
-      </svg>
-      <span>{label}</span>
-    </div>
-  );
 }
 
 function App() {
@@ -187,7 +177,7 @@ function ProductCard({ product, onAdd }) {
   function toggleExtra(id) { setExtraIds((selected) => selected.includes(id) ? selected.filter((item) => item !== id) : [...selected, id]); }
 
   return <article className="product-card">
-    <div className="food-art"><PhotoPlaceholder label="Foto próximamente" /><p>{product.tag}</p></div>
+    <div className="food-art"><img src={product.photo} alt={product.name} /><p>{product.tag}</p></div>
     <div className="product-content"><div className="product-top"><h3>{product.name}</h3><strong>{formatPrice(product.price)}</strong></div><p>{product.description}</p>
       <fieldset><legend>Elige tu salsa</legend><div className="sauce-list">{sauces.map((item) => <label key={item.id} className={sauceId === item.id ? "selected" : ""}><input type="radio" name={`sauce-${product.id}`} checked={sauceId === item.id} onChange={() => setSauceId(item.id)} /><span>{item.name}<small>{item.detail}</small></span></label>)}</div></fieldset>
       <fieldset><legend>Agrega extras</legend>{extras.map((extra) => <label className="extra" key={extra.id}><input type="checkbox" checked={extraIds.includes(extra.id)} onChange={() => toggleExtra(extra.id)} /><span>{extra.name}</span><b>+ {formatPrice(extra.price)}</b></label>)}</fieldset>
