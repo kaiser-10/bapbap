@@ -14,6 +14,7 @@ const extras = new Map([
   ["Kimchi casero", 1500],
   ["Bebida lata", 1800],
 ]);
+const DELIVERY_FEE = 2990;
 
 function response(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -58,7 +59,8 @@ Deno.serve(async (request) => {
       return { product: item.product, sauce: item.sauce, extras: selectedExtras, quantity, unit_price: portionPrice + extrasTotal };
     });
 
-    const total = validatedItems.reduce((sum, item) => sum + item.unit_price * item.quantity, 0);
+    const deliveryFee = customer.delivery === "Delivery" ? DELIVERY_FEE : 0;
+    const total = validatedItems.reduce((sum, item) => sum + item.unit_price * item.quantity, 0) + deliveryFee;
     const database = createClient(supabaseUrl, serviceKey, { auth: { autoRefreshToken: false, persistSession: false } });
     const { data: order, error: orderError } = await database.from("orders").insert({
       customer_name: customer.name.trim(),
@@ -76,12 +78,15 @@ Deno.serve(async (request) => {
       method: "POST",
       headers: { "Authorization": `Bearer ${accessToken}`, "Content-Type": "application/json" },
       body: JSON.stringify({
-        items: validatedItems.map((item) => ({
-          title: `${item.product} · ${item.sauce}${item.extras.length ? ` · ${item.extras.join(", ")}` : ""}`,
-          quantity: item.quantity,
-          unit_price: item.unit_price,
-          currency_id: "CLP",
-        })),
+        items: [
+          ...validatedItems.map((item) => ({
+            title: `${item.product} · ${item.sauce}${item.extras.length ? ` · ${item.extras.join(", ")}` : ""}`,
+            quantity: item.quantity,
+            unit_price: item.unit_price,
+            currency_id: "CLP",
+          })),
+          ...(deliveryFee > 0 ? [{ title: "Despacho", quantity: 1, unit_price: deliveryFee, currency_id: "CLP" }] : []),
+        ],
         external_reference: order.id,
         back_urls: {
           success: `${siteUrl}/payment.html?result=success`,

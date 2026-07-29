@@ -29,6 +29,8 @@ const extras = [
   { id: "drink", name: "Bebida lata", price: 1800 },
 ];
 
+const DELIVERY_FEE = 2990;
+
 const pesos = new Intl.NumberFormat("es-CL", {
   style: "currency",
   currency: "CLP",
@@ -63,6 +65,8 @@ function App() {
     [cart],
   );
   const cartCount = cart.reduce((sum, item) => sum + item.quantity, 0);
+  const deliveryFee = form.delivery === "Delivery" ? DELIVERY_FEE : 0;
+  const orderTotal = cartTotal + deliveryFee;
 
   function addProduct(product, sauce, selectedExtras) {
     const extrasTotal = selectedExtras.reduce((sum, extra) => sum + extra.price, 0);
@@ -148,7 +152,7 @@ function App() {
           </div>
         </section>
 
-        <section className="promise"><span>HECHO AL MOMENTO</span><b>✦</b><span>ARROZ INCLUIDO</span><b>✦</b><span>PAGO ONLINE SEGURO</span></section>
+        <section className="promise"><span>ABIERTO 12:00 - 22:00 HRS</span><b>✦</b><span>HECHO AL MOMENTO</span><b>✦</b><span>ARROZ INCLUIDO</span><b>✦</b><span>PAGO ONLINE SEGURO</span></section>
 
         <section className="menu-section" id="menu">
           <div className="section-title"><p className="eyebrow">MENÚ</p><h2>Tu antojo comienza aquí.</h2><p>Elige una porción, personalízala y agrégala al carrito.</p></div>
@@ -168,7 +172,7 @@ function App() {
       <button className="mobile-cart" onClick={() => setCartOpen(true)}><span>Tu pedido ({cartCount})</span><strong>{formatPrice(cartTotal)}</strong></button>
 
       {cartOpen && <Cart cart={cart} total={cartTotal} onClose={() => setCartOpen(false)} onQuantity={changeQuantity} onCheckout={() => { setCartOpen(false); setCheckoutOpen(true); }} />}
-      {checkoutOpen && <Checkout total={cartTotal} form={form} setForm={setForm} isSubmitting={isSubmitting} onClose={() => setCheckoutOpen(false)} onSubmit={checkout} />}
+      {checkoutOpen && <Checkout subtotal={cartTotal} deliveryFee={deliveryFee} total={orderTotal} form={form} setForm={setForm} isSubmitting={isSubmitting} onClose={() => setCheckoutOpen(false)} onSubmit={checkout} />}
     </>
   );
 }
@@ -196,9 +200,9 @@ function Cart({ cart, total, onClose, onQuantity, onCheckout }) {
   return <div className="overlay" role="presentation"><aside className="cart" role="dialog" aria-modal="true" aria-label="Tu carrito"><div className="drawer-header"><h2>Tu pedido</h2><button onClick={onClose} aria-label="Cerrar carrito">×</button></div>{cart.length === 0 ? <div className="empty"><p>Aún no agregas nada.</p><button onClick={onClose}>Ver el menú</button></div> : <><div className="cart-items">{cart.map((item) => <div className="cart-item" key={item.key}><div><strong>{item.product}</strong><p>{item.sauce}{item.extras.length ? ` · ${item.extras.map((extra) => extra.name).join(", ")}` : ""}</p><b>{formatPrice(item.unitPrice * item.quantity)}</b></div><div className="quantity"><button onClick={() => onQuantity(item.key, -1)}>−</button><span>{item.quantity}</span><button onClick={() => onQuantity(item.key, 1)}>+</button></div></div>)}</div><div className="cart-total"><span>Total</span><strong>{formatPrice(total)}</strong></div><button className="primary-button checkout" onClick={onCheckout}>Continuar al pago <span>→</span></button></>}</aside></div>;
 }
 
-function Checkout({ total, form, setForm, isSubmitting, onClose, onSubmit }) {
+function Checkout({ subtotal, deliveryFee, total, form, setForm, isSubmitting, onClose, onSubmit }) {
   function update(event) { setForm({ ...form, [event.target.name]: event.target.value }); }
-  return <div className="overlay" role="presentation"><section className="checkout-modal" role="dialog" aria-modal="true" aria-label="Finalizar pedido"><div className="drawer-header"><h2>Finaliza tu pedido</h2><button onClick={onClose} aria-label="Cerrar">×</button></div><form onSubmit={onSubmit}><label>Nombre<input required name="name" value={form.name} onChange={update} placeholder="Tu nombre" /></label><label>Teléfono<input required type="tel" name="phone" value={form.phone} onChange={update} placeholder="+56 9 ..." /></label><label>¿Cómo recibes tu pedido?<select name="delivery" value={form.delivery} onChange={update}><option>Retiro</option><option>Delivery</option></select></label>{form.delivery === "Delivery" && <label>Dirección<input required name="address" value={form.address} onChange={update} placeholder="Calle, número y comuna" /></label>}<div className="payment-box"><span>Método de pago</span><strong>Pago online seguro con Mercado Pago</strong><small>Te redirigiremos para completar el pago.</small></div><div className="checkout-total"><span>Total del pedido</span><strong>{formatPrice(total)}</strong></div><button className="primary-button checkout" type="submit" disabled={isSubmitting}>{isSubmitting ? "Abriendo pago..." : "Ir a pagar"} <span>→</span></button><p className="secure-note">No almacenamos datos de tu tarjeta.</p></form></section></div>;
+  return <div className="overlay" role="presentation"><section className="checkout-modal" role="dialog" aria-modal="true" aria-label="Finalizar pedido"><div className="drawer-header"><h2>Finaliza tu pedido</h2><button onClick={onClose} aria-label="Cerrar">×</button></div><form onSubmit={onSubmit}><label>Nombre<input required name="name" value={form.name} onChange={update} placeholder="Tu nombre" /></label><label>Teléfono<input required type="tel" name="phone" value={form.phone} onChange={update} placeholder="+56 9 ..." /></label><label>¿Cómo recibes tu pedido?<select name="delivery" value={form.delivery} onChange={update}><option>Retiro</option><option>Delivery</option></select></label>{form.delivery === "Delivery" && <label>Dirección<input required name="address" value={form.address} onChange={update} placeholder="Calle, número y comuna" /></label>}<div className="payment-box"><span>Método de pago</span><strong>Pago online seguro con Mercado Pago</strong><small>Te redirigiremos para completar el pago.</small></div>{deliveryFee > 0 && <div className="checkout-subtotal"><span>Subtotal</span><span>{formatPrice(subtotal)}</span></div>}{deliveryFee > 0 && <div className="checkout-subtotal"><span>Despacho</span><span>{formatPrice(deliveryFee)}</span></div>}<div className="checkout-total"><span>Total del pedido</span><strong>{formatPrice(total)}</strong></div><button className="primary-button checkout" type="submit" disabled={isSubmitting}>{isSubmitting ? "Abriendo pago..." : "Ir a pagar"} <span>→</span></button><p className="secure-note">No almacenamos datos de tu tarjeta.</p></form></section></div>;
 }
 
 export default App;
