@@ -13,6 +13,46 @@ function toPaymentStatus(status: string) {
   return "pendiente";
 }
 
+const pesos = new Intl.NumberFormat("es-CL", { style: "currency", currency: "CLP", maximumFractionDigits: 0 });
+
+async function sendOrderNotification(order: {
+  customer_name: string;
+  customer_phone: string;
+  delivery_method: string;
+  delivery_address: string | null;
+  items: { product: string; sauce: string; extras?: string[]; quantity: number }[];
+  total: number;
+}) {
+  const resendKey = Deno.env.get("RESEND_API_KEY");
+  const notifyEmail = Deno.env.get("NOTIFY_EMAIL");
+  if (!resendKey || !notifyEmail) return;
+
+  const itemsHtml = order.items
+    .map((item) => `<li>${item.quantity}× ${item.product} · ${item.sauce}${item.extras?.length ? ` · ${item.extras.join(", ")}` : ""}</li>`)
+    .join("");
+
+  try {
+    await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${resendKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        from: "bapbap <onboarding@resend.dev>",
+        to: [notifyEmail],
+        subject: `Nuevo pedido pagado · ${pesos.format(order.total)}`,
+        html: `
+          <h2>Nuevo pedido pagado</h2>
+          <p><strong>${order.customer_name}</strong> · ${order.customer_phone}</p>
+          <p>${order.delivery_method}${order.delivery_method === "Delivery" ? `: ${order.delivery_address}` : ""}</p>
+          <ul>${itemsHtml}</ul>
+          <p><strong>Total: ${pesos.format(order.total)}</strong></p>
+        `,
+      }),
+    });
+  } catch (error) {
+    console.error("No se pudo enviar el aviso por correo", error);
+  }
+}
+
 async function hmacSha256(secret: string, message: string) {
   const key = await crypto.subtle.importKey(
     "raw",
@@ -62,11 +102,18 @@ Deno.serve(async (request) => {
     if (!paymentResponse.ok || !payment.external_reference) return new Response("Payment not found", { status: 404 });
 
     const database = createClient(supabaseUrl, serviceKey, { auth: { autoRefreshToken: false, persistSession: false } });
-    const { error } = await database
+    const newStatus = toPaymentStatus(payment.status);
+    const { data: updatedOrder, error } = await database
       .from("orders")
-      .update({ payment_status: toPaymentStatus(payment.status) })
-      .eq("id", payment.external_reference);
+      .update({ payment_status: newStatus })
+      .eq("id", payment.external_reference)
+      .select()
+      .single();
     if (error) throw error;
+
+    if (newStatus === "pagado") {
+      await sendOrderNotification(updatedOrder);
+    }
 
     return new Response("ok", { status: 200, headers: corsHeaders });
   } catch (error) {

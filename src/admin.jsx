@@ -51,11 +51,23 @@ function Admin() {
     setLoading(true); setError("");
     const { data, error: requestError } = await supabase.from("orders").select("*").eq("payment_status", "pagado").order("created_at", { ascending: false });
     if (requestError) setError("No fue posible cargar los pedidos. Revisa el permiso de administrador en Supabase.");
-    else { setOrders(data); if (selected) setSelected(data.find((order) => order.id === selected.id) ?? null); }
+    else {
+      setOrders(data);
+      setSelected((current) => (current ? data.find((order) => order.id === current.id) ?? null : current));
+    }
     setLoading(false);
   }
 
   useEffect(() => { if (session) loadOrders(); }, [session]);
+
+  useEffect(() => {
+    if (!session) return;
+    const channel = supabase
+      .channel("orders-changes")
+      .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, () => loadOrders())
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [session]);
 
   async function updateStatus(order, status) {
     const { error: requestError } = await supabase.from("orders").update({ status }).eq("id", order.id);
