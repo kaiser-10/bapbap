@@ -22,6 +22,23 @@ function formatDateTime(date) {
   return new Date(date).toLocaleString("es-CL", { dateStyle: "short", timeStyle: "short" });
 }
 
+function startOfDay(date) {
+  const start = new Date(date);
+  start.setHours(0, 0, 0, 0);
+  return start;
+}
+
+function startOfWeek(date) {
+  const start = startOfDay(date);
+  const daysSinceMonday = (start.getDay() + 6) % 7;
+  start.setDate(start.getDate() - daysSinceMonday);
+  return start;
+}
+
+function sumSince(orders, since) {
+  return orders.filter((order) => new Date(order.created_at) >= since).reduce((sum, order) => sum + order.total, 0);
+}
+
 function useClock() {
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
@@ -81,11 +98,13 @@ function Admin() {
 
   const visibleOrders = filter === "todos" ? orders : orders.filter((order) => order.status === filter);
   const newCount = orders.filter((order) => order.status === "nuevo").length;
+  const salesToday = sumSince(orders, startOfDay(now));
+  const salesWeek = sumSince(orders, startOfWeek(now));
 
   return <main className="admin-shell">
     <header className="admin-header"><a className="brand" href="/"><strong>bapbap</strong></a><div><span className="admin-clock">{formatTime(now)}</span><span className="admin-email">{session.user.email}</span><button className="link-button" onClick={() => supabase.auth.signOut()}>Cerrar sesión</button></div></header>
     <section className="admin-intro"><div><p className="eyebrow">ADMINISTRACIÓN</p><h1>Pedidos</h1><p>Revisa, confirma y prepara cada pedido desde un solo lugar.</p></div><button className="refresh-button" onClick={loadOrders}>↻ Actualizar</button></section>
-    <section className="admin-stats"><div><span>Total</span><strong>{orders.length}</strong></div><div><span>Nuevos</span><strong>{newCount}</strong></div><div><span>En preparación</span><strong>{orders.filter((order) => order.status === "preparando").length}</strong></div></section>
+    <section className="admin-stats"><div><span>Ventas hoy</span><strong>{pesos.format(salesToday)}</strong></div><div><span>Ventas esta semana</span><strong>{pesos.format(salesWeek)}</strong></div><div><span>Total</span><strong>{orders.length}</strong></div><div><span>Nuevos</span><strong>{newCount}</strong></div><div><span>En preparación</span><strong>{orders.filter((order) => order.status === "preparando").length}</strong></div></section>
     <div className="filters">{["todos", "nuevo", "confirmado", "preparando", "enviado", "entregado"].map((item) => <button className={filter === item ? "active" : ""} onClick={() => setFilter(item)} key={item}>{item === "todos" ? "Todos" : statusLabels[item]}</button>)}</div>
     {error && <p className="admin-error">{error}</p>}
     {loading ? <p className="loading">Cargando pedidos…</p> : <section className="order-layout"><div className="order-list">{visibleOrders.length === 0 ? <p className="empty-orders">No hay pedidos en esta lista.</p> : visibleOrders.map((order) => <button className={`order-row ${selected?.id === order.id ? "selected" : ""}`} onClick={() => setSelected(order)} key={order.id}><div><span className={`status ${order.status}`}>{statusLabels[order.status]}</span><strong>{order.customer_name}</strong><small>{formatDateTime(order.created_at)}</small></div><b>{pesos.format(order.total)}</b></button>)}</div><OrderDetail order={selected} onStatusChange={updateStatus} /></section>}
