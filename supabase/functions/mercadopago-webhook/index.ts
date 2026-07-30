@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { SMTPClient } from "https://deno.land/x/denomailer@1.6.0/mod.ts";
 
 const corsHeaders = { "Access-Control-Allow-Origin": "*" };
 
@@ -23,33 +24,45 @@ async function sendOrderNotification(order: {
   items: { product: string; sauce: string; extras?: string[]; quantity: number }[];
   total: number;
 }) {
-  const resendKey = Deno.env.get("RESEND_API_KEY");
+  const gmailUser = Deno.env.get("GMAIL_USER");
+  const gmailPassword = Deno.env.get("GMAIL_APP_PASSWORD");
   const notifyEmail = Deno.env.get("NOTIFY_EMAIL");
-  if (!resendKey || !notifyEmail) return;
+  if (!gmailUser || !gmailPassword || !notifyEmail) return;
 
   const itemsHtml = order.items
     .map((item) => `<li>${item.quantity}× ${item.product} · ${item.sauce}${item.extras?.length ? ` · ${item.extras.join(", ")}` : ""}</li>`)
     .join("");
+  const itemsText = order.items
+    .map((item) => `${item.quantity}x ${item.product} - ${item.sauce}${item.extras?.length ? ` - ${item.extras.join(", ")}` : ""}`)
+    .join("\n");
+
+  const client = new SMTPClient({
+    connection: {
+      hostname: "smtp.gmail.com",
+      port: 465,
+      tls: true,
+      auth: { username: gmailUser, password: gmailPassword },
+    },
+  });
 
   try {
-    await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${resendKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        from: "bapbap <onboarding@resend.dev>",
-        to: [notifyEmail],
-        subject: `Nuevo pedido pagado · ${pesos.format(order.total)}`,
-        html: `
-          <h2>Nuevo pedido pagado</h2>
-          <p><strong>${order.customer_name}</strong> · ${order.customer_phone}</p>
-          <p>${order.delivery_method}${order.delivery_method === "Delivery" ? `: ${order.delivery_address}` : ""}</p>
-          <ul>${itemsHtml}</ul>
-          <p><strong>Total: ${pesos.format(order.total)}</strong></p>
-        `,
-      }),
+    await client.send({
+      from: gmailUser,
+      to: notifyEmail,
+      subject: `Nuevo pedido pagado · ${pesos.format(order.total)}`,
+      content: `Nuevo pedido pagado\n${order.customer_name} · ${order.customer_phone}\n${order.delivery_method}${order.delivery_method === "Delivery" ? `: ${order.delivery_address}` : ""}\n${itemsText}\nTotal: ${pesos.format(order.total)}`,
+      html: `
+        <h2>Nuevo pedido pagado</h2>
+        <p><strong>${order.customer_name}</strong> · ${order.customer_phone}</p>
+        <p>${order.delivery_method}${order.delivery_method === "Delivery" ? `: ${order.delivery_address}` : ""}</p>
+        <ul>${itemsHtml}</ul>
+        <p><strong>Total: ${pesos.format(order.total)}</strong></p>
+      `,
     });
   } catch (error) {
     console.error("No se pudo enviar el aviso por correo", error);
+  } finally {
+    await client.close();
   }
 }
 
