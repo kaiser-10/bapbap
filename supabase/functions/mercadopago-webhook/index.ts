@@ -101,11 +101,8 @@ Deno.serve(async (request) => {
     const manifest = `id:${String(paymentId).toLowerCase()};request-id:${requestId};ts:${timestamp};`;
     const expectedSignature = await hmacSha256(webhookSecret, manifest);
     if (expectedSignature !== signature) {
-      // La firma de Mercado Pago no coincide de forma consistente para esta cuenta (bug o
-      // inconsistencia de su lado, verificado manualmente). No bloqueamos: la autenticidad real
-      // se confirma abajo consultando el pago directo en la API de Mercado Pago con nuestro
-      // propio access token, que es la fuente de verdad.
-      console.warn("Webhook signature mismatch, continuing based on API lookup", { paymentId });
+      console.error("Webhook signature mismatch", { paymentId });
+      return new Response("Invalid signature", { status: 401, headers: corsHeaders });
     }
 
     const paymentResponse = await fetch(`https://api.mercadopago.com/v1/payments/${paymentId}`, {
