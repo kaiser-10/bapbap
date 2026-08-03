@@ -15,6 +15,21 @@ const extras = new Map([
   ["Bebida lata", 1800],
 ]);
 const DELIVERY_FEE = 2990;
+const OPEN_DAYS = ["Sat", "Sun"];
+const OPEN_HOUR = 12;
+const CLOSE_HOUR = 20;
+
+function isStoreOpen(date = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Santiago",
+    weekday: "short",
+    hour: "numeric",
+    hour12: false,
+  }).formatToParts(date);
+  const weekday = parts.find((part) => part.type === "weekday")?.value;
+  const hour = Number(parts.find((part) => part.type === "hour")?.value) % 24;
+  return OPEN_DAYS.includes(weekday ?? "") && hour >= OPEN_HOUR && hour < CLOSE_HOUR;
+}
 
 function response(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -39,6 +54,10 @@ Deno.serve(async (request) => {
     const siteUrl = Deno.env.get("SITE_URL");
     if (!accessToken || !supabaseUrl || !serviceKey || !siteUrl) {
       return response({ error: "Falta configurar un secreto del pago." }, 500);
+    }
+
+    if (!isStoreOpen()) {
+      return response({ error: "Estamos cerrados. Solo recibimos pedidos sábado y domingo de 12:00 a 20:00 hrs." }, 400);
     }
 
     const body = await request.json();

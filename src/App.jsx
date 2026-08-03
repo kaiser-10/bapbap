@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { supabase } from "./lib/supabase";
 
 const products = [
@@ -32,6 +32,36 @@ const extras = [
 ];
 
 const DELIVERY_FEE = 2990;
+const OPEN_DAYS = ["Sat", "Sun"];
+const OPEN_HOUR = 12;
+const CLOSE_HOUR = 20;
+
+function getSantiagoParts(date) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Santiago",
+    weekday: "short",
+    hour: "numeric",
+    hour12: false,
+  }).formatToParts(date);
+  return {
+    weekday: parts.find((part) => part.type === "weekday").value,
+    hour: Number(parts.find((part) => part.type === "hour").value) % 24,
+  };
+}
+
+function isStoreOpen(date = new Date()) {
+  const { weekday, hour } = getSantiagoParts(date);
+  return OPEN_DAYS.includes(weekday) && hour >= OPEN_HOUR && hour < CLOSE_HOUR;
+}
+
+function useStoreOpen() {
+  const [open, setOpen] = useState(() => isStoreOpen());
+  useEffect(() => {
+    const id = setInterval(() => setOpen(isStoreOpen()), 30000);
+    return () => clearInterval(id);
+  }, []);
+  return open;
+}
 
 const pesos = new Intl.NumberFormat("es-CL", {
   style: "currency",
@@ -44,6 +74,7 @@ function formatPrice(price) {
 }
 
 function App() {
+  const storeOpen = useStoreOpen();
   const [cart, setCart] = useState([]);
   const [cartOpen, setCartOpen] = useState(false);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
@@ -90,6 +121,10 @@ function App() {
 
   async function checkout(event) {
     event.preventDefault();
+    if (!storeOpen) {
+      alert("Estamos cerrados. Solo recibimos pedidos sábado y domingo de 12:00 a 20:00 hrs.");
+      return;
+    }
     if (!supabase) {
       alert("Falta configurar la conexión con la base de datos.");
       return;
@@ -142,12 +177,12 @@ function App() {
           </div>
         </section>
 
-        <section className="promise"><span>ABIERTO 12:00 - 22:00 HRS</span><b>✦</b><span>HECHO AL MOMENTO</span><b>✦</b><span>ARROZ INCLUIDO</span><b>✦</b><span>PAGO ONLINE SEGURO</span></section>
+        <section className="promise"><span>{storeOpen ? "ABIERTO AHORA" : "CERRADO"} · SÁB Y DOM 12:00-20:00 HRS</span><b>✦</b><span>HECHO AL MOMENTO</span><b>✦</b><span>ARROZ INCLUIDO</span><b>✦</b><span>PAGO ONLINE SEGURO</span></section>
 
         <section className="menu-section" id="menu">
           <div className="section-title"><p className="eyebrow">MENÚ</p><h2>Tu antojo comienza aquí.</h2><p>Elige una porción, personalízala y agrégala al carrito.</p></div>
           <div className="product-grid">
-            {products.map((product) => <ProductCard key={product.id} product={product} onAdd={addProduct} />)}
+            {products.map((product) => <ProductCard key={product.id} product={product} onAdd={addProduct} storeOpen={storeOpen} />)}
           </div>
         </section>
 
@@ -162,12 +197,12 @@ function App() {
       <button className="mobile-cart" onClick={() => setCartOpen(true)}><span>Tu pedido ({cartCount})</span><strong>{formatPrice(cartTotal)}</strong></button>
 
       {cartOpen && <Cart cart={cart} total={cartTotal} onClose={() => setCartOpen(false)} onQuantity={changeQuantity} onCheckout={() => { setCartOpen(false); setCheckoutOpen(true); }} />}
-      {checkoutOpen && <Checkout subtotal={cartTotal} deliveryFee={deliveryFee} total={orderTotal} form={form} setForm={setForm} isSubmitting={isSubmitting} onClose={() => setCheckoutOpen(false)} onSubmit={checkout} />}
+      {checkoutOpen && <Checkout subtotal={cartTotal} deliveryFee={deliveryFee} total={orderTotal} form={form} setForm={setForm} isSubmitting={isSubmitting} storeOpen={storeOpen} onClose={() => setCheckoutOpen(false)} onSubmit={checkout} />}
     </>
   );
 }
 
-function ProductCard({ product, onAdd }) {
+function ProductCard({ product, onAdd, storeOpen }) {
   const [sauceId, setSauceId] = useState(sauces[0].id);
   const [extraIds, setExtraIds] = useState([]);
   const sauce = sauces.find((item) => item.id === sauceId);
@@ -181,7 +216,7 @@ function ProductCard({ product, onAdd }) {
     <div className="product-content"><div className="product-top"><h3>{product.name}</h3><strong>{formatPrice(product.price)}</strong></div><p>{product.description}</p>
       <fieldset><legend>Elige tu salsa</legend><div className="sauce-list">{sauces.map((item) => <label key={item.id} className={sauceId === item.id ? "selected" : ""}><input type="radio" name={`sauce-${product.id}`} checked={sauceId === item.id} onChange={() => setSauceId(item.id)} /><span>{item.name}<small>{item.detail}</small></span></label>)}</div></fieldset>
       <fieldset><legend>Agrega extras</legend>{extras.map((extra) => <label className="extra" key={extra.id}><input type="checkbox" checked={extraIds.includes(extra.id)} onChange={() => toggleExtra(extra.id)} /><span>{extra.name}</span><b>+ {formatPrice(extra.price)}</b></label>)}</fieldset>
-      <button className="add-button" onClick={() => onAdd(product, sauce, selectedExtras)}>Agregar · {formatPrice(total)} <span>+</span></button>
+      <button className="add-button" onClick={() => onAdd(product, sauce, selectedExtras)} disabled={!storeOpen}>{storeOpen ? <>Agregar · {formatPrice(total)} <span>+</span></> : "Cerrado por ahora"}</button>
     </div>
   </article>;
 }
@@ -190,9 +225,9 @@ function Cart({ cart, total, onClose, onQuantity, onCheckout }) {
   return <div className="overlay" role="presentation"><aside className="cart" role="dialog" aria-modal="true" aria-label="Tu carrito"><div className="drawer-header"><h2>Tu pedido</h2><button onClick={onClose} aria-label="Cerrar carrito">×</button></div>{cart.length === 0 ? <div className="empty"><p>Aún no agregas nada.</p><button onClick={onClose}>Ver el menú</button></div> : <><div className="cart-items">{cart.map((item) => <div className="cart-item" key={item.key}><div><strong>{item.product}</strong><p>{item.sauce}{item.extras.length ? ` · ${item.extras.map((extra) => extra.name).join(", ")}` : ""}</p><b>{formatPrice(item.unitPrice * item.quantity)}</b></div><div className="quantity"><button onClick={() => onQuantity(item.key, -1)}>−</button><span>{item.quantity}</span><button onClick={() => onQuantity(item.key, 1)}>+</button></div></div>)}</div><div className="cart-total"><span>Total</span><strong>{formatPrice(total)}</strong></div><button className="primary-button checkout" onClick={onCheckout}>Continuar al pago <span>→</span></button></>}</aside></div>;
 }
 
-function Checkout({ subtotal, deliveryFee, total, form, setForm, isSubmitting, onClose, onSubmit }) {
+function Checkout({ subtotal, deliveryFee, total, form, setForm, isSubmitting, storeOpen, onClose, onSubmit }) {
   function update(event) { setForm({ ...form, [event.target.name]: event.target.value }); }
-  return <div className="overlay" role="presentation"><section className="checkout-modal" role="dialog" aria-modal="true" aria-label="Finalizar pedido"><div className="drawer-header"><h2>Finaliza tu pedido</h2><button onClick={onClose} aria-label="Cerrar">×</button></div><form onSubmit={onSubmit}><label>Nombre<input required name="name" value={form.name} onChange={update} placeholder="Tu nombre" /></label><label>Teléfono<input required type="tel" name="phone" value={form.phone} onChange={update} placeholder="+56 9 ..." /></label><label>¿Cómo recibes tu pedido?<select name="delivery" value={form.delivery} onChange={update}><option>Retiro</option><option>Delivery</option></select></label>{form.delivery === "Delivery" && <label>Dirección<input required name="address" value={form.address} onChange={update} placeholder="Calle, número y comuna" /></label>}<div className="payment-box"><span>Método de pago</span><strong>Pago online seguro con Mercado Pago</strong><small>Te redirigiremos para completar el pago.</small></div>{deliveryFee > 0 && <div className="checkout-subtotal"><span>Subtotal</span><span>{formatPrice(subtotal)}</span></div>}{deliveryFee > 0 && <div className="checkout-subtotal"><span>Despacho</span><span>{formatPrice(deliveryFee)}</span></div>}<div className="checkout-total"><span>Total del pedido</span><strong>{formatPrice(total)}</strong></div><button className="primary-button checkout" type="submit" disabled={isSubmitting}>{isSubmitting ? "Abriendo pago..." : "Ir a pagar"} <span>→</span></button><p className="secure-note">No almacenamos datos de tu tarjeta.</p></form></section></div>;
+  return <div className="overlay" role="presentation"><section className="checkout-modal" role="dialog" aria-modal="true" aria-label="Finalizar pedido"><div className="drawer-header"><h2>Finaliza tu pedido</h2><button onClick={onClose} aria-label="Cerrar">×</button></div><form onSubmit={onSubmit}><label>Nombre<input required name="name" value={form.name} onChange={update} placeholder="Tu nombre" /></label><label>Teléfono<input required type="tel" name="phone" value={form.phone} onChange={update} placeholder="+56 9 ..." /></label><label>¿Cómo recibes tu pedido?<select name="delivery" value={form.delivery} onChange={update}><option>Retiro</option><option>Delivery</option></select></label>{form.delivery === "Delivery" && <label>Dirección<input required name="address" value={form.address} onChange={update} placeholder="Calle, número y comuna" /></label>}<div className="payment-box">{storeOpen ? <><span>Método de pago</span><strong>Pago online seguro con Mercado Pago</strong><small>Te redirigiremos para completar el pago.</small></> : <><span>Estamos cerrados</span><strong>Solo recibimos pedidos sábado y domingo</strong><small>De 12:00 a 20:00 hrs. Vuelve a intentarlo en ese horario.</small></>}</div>{deliveryFee > 0 && <div className="checkout-subtotal"><span>Subtotal</span><span>{formatPrice(subtotal)}</span></div>}{deliveryFee > 0 && <div className="checkout-subtotal"><span>Despacho</span><span>{formatPrice(deliveryFee)}</span></div>}<div className="checkout-total"><span>Total del pedido</span><strong>{formatPrice(total)}</strong></div><button className="primary-button checkout" type="submit" disabled={isSubmitting || !storeOpen}>{isSubmitting ? "Abriendo pago..." : "Ir a pagar"} <span>→</span></button><p className="secure-note">No almacenamos datos de tu tarjeta.</p></form></section></div>;
 }
 
 export default App;
