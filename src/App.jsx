@@ -20,15 +20,11 @@ const products = [
   },
 ];
 
-const sauces = [
-  { id: "yangnyeom", name: "Yangnyeom", detail: "Dulce y picante" },
-  { id: "garlic", name: "Soya ajo", detail: "Sabrosa y suave" },
-  { id: "plain", name: "Sin salsa", detail: "Extra crocante" },
-];
+const DEFAULT_SAUCE = "Yangnyeom";
 
 const extras = [
-  { id: "kimchi", name: "Kimchi casero", price: 1500 },
-  { id: "drink", name: "Bebida lata", price: 1800 },
+  { id: "rice", name: "Arroz extra", price: 2000 },
+  { id: "sauce", name: "Salsa extra", price: 1500 },
 ];
 
 const DELIVERY_FEE = 2990;
@@ -89,13 +85,13 @@ function App() {
   const deliveryFee = form.delivery === "Delivery" ? DELIVERY_FEE : 0;
   const orderTotal = cartTotal + deliveryFee;
 
-  function addProduct(product, sauce, selectedExtras) {
+  function addProduct(product, selectedExtras) {
     const extrasTotal = selectedExtras.reduce((sum, extra) => sum + extra.price, 0);
-    const key = `${product.id}-${sauce.id}-${selectedExtras.map((extra) => extra.id).join("-")}`;
+    const key = `${product.id}-${selectedExtras.map((extra) => extra.id).join("-")}`;
     const item = {
       key,
       product: product.name,
-      sauce: sauce.name,
+      sauce: DEFAULT_SAUCE,
       extras: selectedExtras,
       unitPrice: product.price + extrasTotal,
       quantity: 1,
@@ -136,7 +132,6 @@ function App() {
         customer: { name: form.name, phone: form.phone, delivery: form.delivery, address: form.address },
         items: cart.map((item) => ({
         product: item.product,
-        sauce: item.sauce,
         extras: item.extras.map((extra) => extra.name),
         quantity: item.quantity,
       })),
@@ -188,7 +183,7 @@ function App() {
 
         <section className="steps" id="como-pedir">
           <div><p className="eyebrow">ASÍ DE SIMPLE</p><h2>Pedir es fácil.</h2></div>
-          <ol><li><span>01</span><strong>Elige tu pollo</strong><p>Personaliza tu salsa y extras.</p></li><li><span>02</span><strong>Revisa tu carrito</strong><p>Completa los datos de entrega o retiro.</p></li><li><span>03</span><strong>Paga online</strong><p>Confirma tu pedido de forma segura.</p></li></ol>
+          <ol><li><span>01</span><strong>Elige tu pollo</strong><p>Agrega los extras que quieras.</p></li><li><span>02</span><strong>Revisa tu carrito</strong><p>Completa los datos de entrega o retiro.</p></li><li><span>03</span><strong>Paga online</strong><p>Confirma tu pedido de forma segura.</p></li></ol>
         </section>
       </main>
 
@@ -203,9 +198,7 @@ function App() {
 }
 
 function ProductCard({ product, onAdd, storeOpen }) {
-  const [sauceId, setSauceId] = useState(sauces[0].id);
   const [extraIds, setExtraIds] = useState([]);
-  const sauce = sauces.find((item) => item.id === sauceId);
   const selectedExtras = extras.filter((extra) => extraIds.includes(extra.id));
   const total = product.price + selectedExtras.reduce((sum, extra) => sum + extra.price, 0);
 
@@ -214,9 +207,8 @@ function ProductCard({ product, onAdd, storeOpen }) {
   return <article className="product-card">
     <div className="food-art"><img src={product.photo} alt={product.name} /><p>{product.tag}</p></div>
     <div className="product-content"><div className="product-top"><h3>{product.name}</h3><strong>{formatPrice(product.price)}</strong></div><p>{product.description}</p>
-      <fieldset><legend>Elige tu salsa</legend><div className="sauce-list">{sauces.map((item) => <label key={item.id} className={sauceId === item.id ? "selected" : ""}><input type="radio" name={`sauce-${product.id}`} checked={sauceId === item.id} onChange={() => setSauceId(item.id)} /><span>{item.name}<small>{item.detail}</small></span></label>)}</div></fieldset>
       <fieldset><legend>Agrega extras</legend>{extras.map((extra) => <label className="extra" key={extra.id}><input type="checkbox" checked={extraIds.includes(extra.id)} onChange={() => toggleExtra(extra.id)} /><span>{extra.name}</span><b>+ {formatPrice(extra.price)}</b></label>)}</fieldset>
-      <button className="add-button" onClick={() => onAdd(product, sauce, selectedExtras)} disabled={!storeOpen}>{storeOpen ? <>Agregar · {formatPrice(total)} <span>+</span></> : "Cerrado por ahora"}</button>
+      <button className="add-button" onClick={() => onAdd(product, selectedExtras)} disabled={!storeOpen}>{storeOpen ? <>Agregar · {formatPrice(total)} <span>+</span></> : "Cerrado por ahora"}</button>
     </div>
   </article>;
 }

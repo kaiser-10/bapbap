@@ -9,10 +9,10 @@ const portions = new Map([
   ["Porción individual", 6990],
   ["Para compartir", 11990],
 ]);
-const sauces = new Set(["Yangnyeom", "Soya ajo", "Sin salsa"]);
+const DEFAULT_SAUCE = "Yangnyeom";
 const extras = new Map([
-  ["Kimchi casero", 1500],
-  ["Bebida lata", 1800],
+  ["Arroz extra", 2000],
+  ["Salsa extra", 1500],
 ]);
 const DELIVERY_FEE = 2990;
 const OPEN_DAYS = ["Sat", "Sun"];
@@ -67,15 +67,15 @@ Deno.serve(async (request) => {
       return response({ error: "Los datos del pedido no son válidos." }, 400);
     }
 
-    const validatedItems = submittedItems.map((item: { product?: string; sauce?: string; extras?: string[]; quantity?: number }) => {
+    const validatedItems = submittedItems.map((item: { product?: string; extras?: string[]; quantity?: number }) => {
       const portionPrice = portions.get(item.product ?? "");
       const selectedExtras = Array.isArray(item.extras) ? item.extras : [];
       const quantity = Number(item.quantity);
-      if (!portionPrice || !sauces.has(item.sauce ?? "") || !Number.isInteger(quantity) || quantity < 1 || quantity > 10 || selectedExtras.some((extra) => !extras.has(extra))) {
+      if (!portionPrice || !Number.isInteger(quantity) || quantity < 1 || quantity > 10 || selectedExtras.some((extra) => !extras.has(extra))) {
         throw new Error("Producto no válido.");
       }
       const extrasTotal = selectedExtras.reduce((sum, extra) => sum + (extras.get(extra) ?? 0), 0);
-      return { product: item.product, sauce: item.sauce, extras: selectedExtras, quantity, unit_price: portionPrice + extrasTotal };
+      return { product: item.product, sauce: DEFAULT_SAUCE, extras: selectedExtras, quantity, unit_price: portionPrice + extrasTotal };
     });
 
     const deliveryFee = customer.delivery === "Delivery" ? DELIVERY_FEE : 0;
