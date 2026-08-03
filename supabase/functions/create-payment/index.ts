@@ -63,7 +63,13 @@ Deno.serve(async (request) => {
     const body = await request.json();
     const customer = body.customer ?? {};
     const submittedItems = Array.isArray(body.items) ? body.items : [];
-    if (typeof customer.name !== "string" || customer.name.trim().length < 2 || typeof customer.phone !== "string" || customer.phone.trim().length < 6 || !["Retiro", "Delivery"].includes(customer.delivery) || (customer.delivery === "Delivery" && (!customer.address || customer.address.trim().length < 5)) || submittedItems.length === 0) {
+    if (
+      typeof customer.name !== "string" || customer.name.trim().length < 2 || customer.name.trim().length > 100 ||
+      typeof customer.phone !== "string" || customer.phone.trim().length < 6 || customer.phone.trim().length > 30 ||
+      !["Retiro", "Delivery"].includes(customer.delivery) ||
+      (customer.delivery === "Delivery" && (!customer.address || customer.address.trim().length < 5 || customer.address.trim().length > 200)) ||
+      submittedItems.length === 0 || submittedItems.length > 20
+    ) {
       return response({ error: "Los datos del pedido no son válidos." }, 400);
     }
 
