@@ -28,6 +28,7 @@ const extras = [
 ];
 
 const DELIVERY_FEE = 2990;
+const COMUNAS = ["Puente Alto", "San Bernardo", "El Bosque", "La Pintana"];
 const OPEN_DAYS = ["Sat", "Sun"];
 const OPEN_HOUR = 12;
 const CLOSE_HOUR = 20;
@@ -76,7 +77,7 @@ function App() {
   const [cart, setCart] = useState([]);
   const [cartOpen, setCartOpen] = useState(false);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
-  const [form, setForm] = useState({ name: "", phone: "", delivery: "Retiro", address: "" });
+  const [form, setForm] = useState({ name: "", phone: "", comuna: COMUNAS[0], address: "" });
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const cartTotal = useMemo(
@@ -84,7 +85,7 @@ function App() {
     [cart],
   );
   const cartCount = cart.reduce((sum, item) => sum + item.quantity, 0);
-  const deliveryFee = form.delivery === "Delivery" ? DELIVERY_FEE : 0;
+  const deliveryFee = DELIVERY_FEE;
   const orderTotal = cartTotal + deliveryFee;
 
   function addProduct(product, selectedExtras) {
@@ -131,7 +132,7 @@ function App() {
     setIsSubmitting(true);
     const { data, error } = await supabase.functions.invoke("create-payment", {
       body: {
-        customer: { name: form.name, phone: form.phone, delivery: form.delivery, address: form.address },
+        customer: { name: form.name, phone: form.phone, comuna: form.comuna, address: form.address },
         items: cart.map((item) => ({
         product: item.product,
         extras: item.extras.map((extra) => extra.name),
@@ -185,7 +186,7 @@ function App() {
 
         <section className="steps" id="como-pedir">
           <div><p className="eyebrow">ASÍ DE SIMPLE</p><h2>Pedir es fácil.</h2></div>
-          <ol><li><span>01</span><strong>Elige tu pollo</strong><p>Agrega los extras que quieras.</p></li><li><span>02</span><strong>Revisa tu carrito</strong><p>Completa los datos de entrega o retiro.</p></li><li><span>03</span><strong>Paga online</strong><p>Confirma tu pedido de forma segura.</p></li></ol>
+          <ol><li><span>01</span><strong>Elige tu pollo</strong><p>Agrega los extras que quieras.</p></li><li><span>02</span><strong>Revisa tu carrito</strong><p>Completa los datos de entrega.</p></li><li><span>03</span><strong>Paga online</strong><p>Confirma tu pedido de forma segura.</p></li></ol>
         </section>
       </main>
 
@@ -221,7 +222,7 @@ function Cart({ cart, total, onClose, onQuantity, onCheckout }) {
 
 function Checkout({ subtotal, deliveryFee, total, form, setForm, isSubmitting, storeOpen, onClose, onSubmit }) {
   function update(event) { setForm({ ...form, [event.target.name]: event.target.value }); }
-  return <div className="overlay" role="presentation"><section className="checkout-modal" role="dialog" aria-modal="true" aria-label="Finalizar pedido"><div className="drawer-header"><h2>Finaliza tu pedido</h2><button onClick={onClose} aria-label="Cerrar">×</button></div><form onSubmit={onSubmit}><label>Nombre<input required maxLength={100} name="name" value={form.name} onChange={update} placeholder="Tu nombre" /></label><label>Teléfono<input required maxLength={30} type="tel" name="phone" value={form.phone} onChange={update} placeholder="+56 9 ..." /></label><label>¿Cómo recibes tu pedido?<select name="delivery" value={form.delivery} onChange={update}><option>Retiro</option><option>Delivery</option></select></label>{form.delivery === "Delivery" && <label>Dirección<input required maxLength={200} name="address" value={form.address} onChange={update} placeholder="Calle, número y comuna" /></label>}<div className="payment-box">{storeOpen ? <><span>Método de pago</span><strong>Pago online seguro con Mercado Pago</strong><small>Te redirigiremos para completar el pago.</small></> : <><span>Estamos cerrados</span><strong>Solo recibimos pedidos sábado y domingo</strong><small>De 12:00 a 20:00 hrs. Vuelve a intentarlo en ese horario.</small></>}</div>{deliveryFee > 0 && <div className="checkout-subtotal"><span>Subtotal</span><span>{formatPrice(subtotal)}</span></div>}{deliveryFee > 0 && <div className="checkout-subtotal"><span>Despacho</span><span>{formatPrice(deliveryFee)}</span></div>}<div className="checkout-total"><span>Total del pedido</span><strong>{formatPrice(total)}</strong></div><button className="primary-button checkout" type="submit" disabled={isSubmitting || !storeOpen}>{isSubmitting ? "Abriendo pago..." : "Ir a pagar"} <span>→</span></button><p className="secure-note">No almacenamos datos de tu tarjeta.</p></form></section></div>;
+  return <div className="overlay" role="presentation"><section className="checkout-modal" role="dialog" aria-modal="true" aria-label="Finalizar pedido"><div className="drawer-header"><h2>Finaliza tu pedido</h2><button onClick={onClose} aria-label="Cerrar">×</button></div><form onSubmit={onSubmit}><label>Nombre<input required maxLength={100} name="name" value={form.name} onChange={update} placeholder="Tu nombre" /></label><label>Teléfono<input required maxLength={30} type="tel" name="phone" value={form.phone} onChange={update} placeholder="+56 9 ..." /></label><label>Comuna<select name="comuna" value={form.comuna} onChange={update}>{COMUNAS.map((comuna) => <option key={comuna}>{comuna}</option>)}</select><small>Solo hacemos despacho a Puente Alto, San Bernardo, El Bosque y La Pintana.</small></label><label>Dirección<input required maxLength={200} name="address" value={form.address} onChange={update} placeholder="Calle, número y depto/casa" /></label><div className="payment-box">{storeOpen ? <><span>Método de pago</span><strong>Pago online seguro con Mercado Pago</strong><small>Te redirigiremos para completar el pago.</small></> : <><span>Estamos cerrados</span><strong>Solo recibimos pedidos sábado y domingo</strong><small>De 12:00 a 20:00 hrs. Vuelve a intentarlo en ese horario.</small></>}</div><div className="checkout-subtotal"><span>Subtotal</span><span>{formatPrice(subtotal)}</span></div><div className="checkout-subtotal"><span>Despacho</span><span>{formatPrice(deliveryFee)}</span></div><div className="checkout-total"><span>Total del pedido</span><strong>{formatPrice(total)}</strong></div><button className="primary-button checkout" type="submit" disabled={isSubmitting || !storeOpen}>{isSubmitting ? "Abriendo pago..." : "Ir a pagar"} <span>→</span></button><p className="secure-note">No almacenamos datos de tu tarjeta.</p></form></section></div>;
 }
 
 export default App;

@@ -15,6 +15,7 @@ const extras = new Map([
   ["Salsa extra", 1500],
 ]);
 const DELIVERY_FEE = 2990;
+const COMUNAS = new Set(["Puente Alto", "San Bernardo", "El Bosque", "La Pintana"]);
 const OPEN_DAYS = ["Sat", "Sun"];
 const OPEN_HOUR = 12;
 const CLOSE_HOUR = 20;
@@ -68,8 +69,8 @@ Deno.serve(async (request) => {
     if (
       typeof customer.name !== "string" || customer.name.trim().length < 2 || customer.name.trim().length > 100 ||
       typeof customer.phone !== "string" || customer.phone.trim().length < 6 || customer.phone.trim().length > 30 ||
-      !["Retiro", "Delivery"].includes(customer.delivery) ||
-      (customer.delivery === "Delivery" && (!customer.address || customer.address.trim().length < 5 || customer.address.trim().length > 200)) ||
+      !COMUNAS.has(customer.comuna) ||
+      typeof customer.address !== "string" || customer.address.trim().length < 5 || customer.address.trim().length > 200 ||
       submittedItems.length === 0 || submittedItems.length > 20
     ) {
       return response({ error: "Los datos del pedido no son válidos." }, 400);
@@ -86,14 +87,14 @@ Deno.serve(async (request) => {
       return { product: item.product, sauce: DEFAULT_SAUCE, extras: selectedExtras, quantity, unit_price: portionPrice + extrasTotal };
     });
 
-    const deliveryFee = customer.delivery === "Delivery" ? DELIVERY_FEE : 0;
-    const total = validatedItems.reduce((sum, item) => sum + item.unit_price * item.quantity, 0) + deliveryFee;
+    const total = validatedItems.reduce((sum, item) => sum + item.unit_price * item.quantity, 0) + DELIVERY_FEE;
     const database = createClient(supabaseUrl, serviceKey, { auth: { autoRefreshToken: false, persistSession: false } });
     const { data: order, error: orderError } = await database.from("orders").insert({
       customer_name: customer.name.trim(),
       customer_phone: customer.phone.trim(),
-      delivery_method: customer.delivery,
-      delivery_address: customer.delivery === "Delivery" ? customer.address.trim() : null,
+      delivery_method: "Delivery",
+      delivery_address: customer.address.trim(),
+      comuna: customer.comuna,
       items: validatedItems,
       total,
       payment_provider: "mercado_pago",
@@ -112,7 +113,7 @@ Deno.serve(async (request) => {
             unit_price: item.unit_price,
             currency_id: "CLP",
           })),
-          ...(deliveryFee > 0 ? [{ title: "Despacho", quantity: 1, unit_price: deliveryFee, currency_id: "CLP" }] : []),
+          { title: "Despacho", quantity: 1, unit_price: DELIVERY_FEE, currency_id: "CLP" },
         ],
         external_reference: order.id,
         back_urls: {
