@@ -88,6 +88,23 @@ function App() {
   const deliveryFee = DELIVERY_FEE;
   const orderTotal = cartTotal + deliveryFee;
 
+  useEffect(() => {
+    const items = document.querySelectorAll(".reveal");
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            entry.target.classList.add("is-visible");
+            observer.unobserve(entry.target);
+          }
+        });
+      },
+      { threshold: 0.15 },
+    );
+    items.forEach((item) => observer.observe(item));
+    return () => observer.disconnect();
+  }, []);
+
   function addProduct(product, selectedExtras) {
     const extrasTotal = selectedExtras.reduce((sum, extra) => sum + extra.price, 0);
     const key = `${product.id}-${selectedExtras.map((extra) => extra.id).join("-")}`;
@@ -178,15 +195,15 @@ function App() {
         <section className="promise"><span>{storeOpen ? "ABIERTO AHORA" : "CERRADO"} · SÁB Y DOM 12:00-20:00 HRS</span><b>✦</b><span>HECHO AL MOMENTO</span><b>✦</b><span>ARROZ INCLUIDO</span><b>✦</b><span>PAGO ONLINE SEGURO</span></section>
 
         <section className="menu-section" id="menu">
-          <div className="section-title"><p className="eyebrow">MENÚ</p><h2>Tu antojo comienza aquí.</h2><p>Elige una porción, personalízala y agrégala al carrito.</p></div>
+          <div className="section-title reveal"><p className="eyebrow">MENÚ</p><h2>Tu antojo comienza aquí.</h2><p>Elige una porción, personalízala y agrégala al carrito.</p></div>
           <div className="product-grid">
             {products.map((product) => <ProductCard key={product.id} product={product} onAdd={addProduct} storeOpen={storeOpen} />)}
           </div>
         </section>
 
         <section className="steps" id="como-pedir">
-          <div><p className="eyebrow">ASÍ DE SIMPLE</p><h2>Pedir es fácil.</h2></div>
-          <ol><li><span>01</span><strong>Elige tu pollo</strong><p>Agrega los extras que quieras.</p></li><li><span>02</span><strong>Revisa tu carrito</strong><p>Completa los datos de entrega.</p></li><li><span>03</span><strong>Paga online</strong><p>Confirma tu pedido de forma segura.</p></li></ol>
+          <div className="reveal"><p className="eyebrow">ASÍ DE SIMPLE</p><h2>Pedir es fácil.</h2></div>
+          <ol><li className="reveal"><span>01</span><strong>Elige tu pollo</strong><p>Agrega los extras que quieras.</p></li><li className="reveal"><span>02</span><strong>Revisa tu carrito</strong><p>Completa los datos de entrega.</p></li><li className="reveal"><span>03</span><strong>Paga online</strong><p>Confirma tu pedido de forma segura.</p></li></ol>
         </section>
       </main>
 
@@ -207,7 +224,7 @@ function ProductCard({ product, onAdd, storeOpen }) {
 
   function toggleExtra(id) { setExtraIds((selected) => selected.includes(id) ? selected.filter((item) => item !== id) : [...selected, id]); }
 
-  return <article className="product-card">
+  return <article className="product-card reveal">
     <div className="food-art"><img src={product.photo} alt={product.name} /><p>{product.tag}</p></div>
     <div className="product-content"><div className="product-top"><h3>{product.name}</h3><strong>{formatPrice(product.price)}</strong></div><p>{product.description}</p>
       <fieldset><legend>Agrega extras</legend>{extras.map((extra) => <label className="extra" key={extra.id}><input type="checkbox" checked={extraIds.includes(extra.id)} onChange={() => toggleExtra(extra.id)} /><span>{extra.name}</span><b>+ {formatPrice(extra.price)}</b></label>)}</fieldset>
