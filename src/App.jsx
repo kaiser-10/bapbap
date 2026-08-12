@@ -1,5 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
+import { AnimatePresence, motion, MotionConfig } from "framer-motion";
 import { supabase } from "./lib/supabase";
+
+const fadeUp = { hidden: { opacity: 0, y: 24 }, visible: { opacity: 1, y: 0 } };
+const staggerParent = { hidden: {}, visible: { transition: { staggerChildren: 0.12 } } };
+const drawerTransition = { type: "spring", stiffness: 320, damping: 34 };
 
 const products = [
   {
@@ -88,23 +93,6 @@ function App() {
   const deliveryFee = DELIVERY_FEE;
   const orderTotal = cartTotal + deliveryFee;
 
-  useEffect(() => {
-    const items = document.querySelectorAll(".reveal");
-    const observer = new IntersectionObserver(
-      (entries) => {
-        entries.forEach((entry) => {
-          if (entry.isIntersecting) {
-            entry.target.classList.add("is-visible");
-            observer.unobserve(entry.target);
-          }
-        });
-      },
-      { threshold: 0.15 },
-    );
-    items.forEach((item) => observer.observe(item));
-    return () => observer.disconnect();
-  }, []);
-
   function addProduct(product, selectedExtras) {
     const extrasTotal = selectedExtras.reduce((sum, extra) => sum + extra.price, 0);
     const key = `${product.id}-${selectedExtras.map((extra) => extra.id).join("-")}`;
@@ -167,43 +155,47 @@ function App() {
   }
 
   return (
-    <>
+    <MotionConfig reducedMotion="user">
       <header className="site-header">
         <a className="brand" href="#inicio" aria-label="bapbap, inicio">
           <img src="/logo-horizontal.svg" alt="bapbap" />
         </a>
         <nav aria-label="Navegación principal"><a href="#menu">Menú</a><a href="#como-pedir">Cómo pedir</a></nav>
         <button className="cart-button" onClick={() => setCartOpen(true)} aria-label="Abrir carrito">
-          Carrito <span>{cartCount}</span>
+          Carrito <AnimatePresence mode="popLayout" initial={false}><motion.span key={cartCount} initial={{ scale: 1.4, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.6, opacity: 0 }} transition={{ type: "spring", stiffness: 400, damping: 15 }}>{cartCount}</motion.span></AnimatePresence>
         </button>
       </header>
 
       <main>
         <section className="hero" id="inicio">
-          <div className="hero-copy">
+          <motion.div className="hero-copy" initial="hidden" animate="visible" variants={fadeUp} transition={{ duration: 0.6, ease: "easeOut" }}>
             <img className="hero-logo" src="/logo-featured.svg" alt="bapbap" />
             <p className="eyebrow">POLLO COREANO EN PUENTE ALTO</p>
             <h1>Crujiente por fuera.<br /><em>Inolvidable</em> por dentro.</h1>
             <p>Pollo frito coreano bañado en salsa, servido con arroz recién preparado.</p>
             <a className="primary-button" href="#menu">Pide ahora <span>↓</span></a>
-          </div>
-          <div className="hero-image">
+          </motion.div>
+          <motion.div className="hero-image" initial="hidden" animate="visible" variants={fadeUp} transition={{ duration: 0.6, delay: 0.15, ease: "easeOut" }}>
             <img src="/photos/pollo-hero.jpg" alt="Pollo coreano con arroz" />
-          </div>
+          </motion.div>
         </section>
 
         <section className="promise"><span>{storeOpen ? "ABIERTO AHORA" : "CERRADO"} · SÁB Y DOM 12:00-20:00 HRS</span><b>✦</b><span>HECHO AL MOMENTO</span><b>✦</b><span>ARROZ INCLUIDO</span><b>✦</b><span>PAGO ONLINE SEGURO</span></section>
 
         <section className="menu-section" id="menu">
-          <div className="section-title reveal"><p className="eyebrow">MENÚ</p><h2>Tu antojo comienza aquí.</h2><p>Elige una porción, personalízala y agrégala al carrito.</p></div>
-          <div className="product-grid">
+          <motion.div className="section-title" initial="hidden" whileInView="visible" viewport={{ once: true, amount: 0.3 }} variants={fadeUp} transition={{ duration: 0.6, ease: "easeOut" }}><p className="eyebrow">MENÚ</p><h2>Tu antojo comienza aquí.</h2><p>Elige una porción, personalízala y agrégala al carrito.</p></motion.div>
+          <motion.div className="product-grid" initial="hidden" whileInView="visible" viewport={{ once: true, amount: 0.15 }} variants={staggerParent}>
             {products.map((product) => <ProductCard key={product.id} product={product} onAdd={addProduct} storeOpen={storeOpen} />)}
-          </div>
+          </motion.div>
         </section>
 
         <section className="steps" id="como-pedir">
-          <div className="reveal"><p className="eyebrow">ASÍ DE SIMPLE</p><h2>Pedir es fácil.</h2></div>
-          <ol><li className="reveal"><span>01</span><strong>Elige tu pollo</strong><p>Agrega los extras que quieras.</p></li><li className="reveal"><span>02</span><strong>Revisa tu carrito</strong><p>Completa los datos de entrega.</p></li><li className="reveal"><span>03</span><strong>Paga online</strong><p>Confirma tu pedido de forma segura.</p></li></ol>
+          <motion.div initial="hidden" whileInView="visible" viewport={{ once: true, amount: 0.4 }} variants={fadeUp} transition={{ duration: 0.6, ease: "easeOut" }}><p className="eyebrow">ASÍ DE SIMPLE</p><h2>Pedir es fácil.</h2></motion.div>
+          <motion.ol initial="hidden" whileInView="visible" viewport={{ once: true, amount: 0.3 }} variants={staggerParent}>
+            <motion.li variants={fadeUp} transition={{ duration: 0.5, ease: "easeOut" }}><span>01</span><strong>Elige tu pollo</strong><p>Agrega los extras que quieras.</p></motion.li>
+            <motion.li variants={fadeUp} transition={{ duration: 0.5, ease: "easeOut" }}><span>02</span><strong>Revisa tu carrito</strong><p>Completa los datos de entrega.</p></motion.li>
+            <motion.li variants={fadeUp} transition={{ duration: 0.5, ease: "easeOut" }}><span>03</span><strong>Paga online</strong><p>Confirma tu pedido de forma segura.</p></motion.li>
+          </motion.ol>
         </section>
       </main>
 
@@ -211,9 +203,11 @@ function App() {
 
       <button className="mobile-cart" onClick={() => setCartOpen(true)}><span>Tu pedido ({cartCount})</span><strong>{formatPrice(cartTotal)}</strong></button>
 
-      {cartOpen && <Cart cart={cart} total={cartTotal} onClose={() => setCartOpen(false)} onQuantity={changeQuantity} onCheckout={() => { setCartOpen(false); setCheckoutOpen(true); }} />}
-      {checkoutOpen && <Checkout subtotal={cartTotal} deliveryFee={deliveryFee} total={orderTotal} form={form} setForm={setForm} isSubmitting={isSubmitting} storeOpen={storeOpen} onClose={() => setCheckoutOpen(false)} onSubmit={checkout} />}
-    </>
+      <AnimatePresence>
+        {cartOpen && <Cart key="cart" cart={cart} total={cartTotal} onClose={() => setCartOpen(false)} onQuantity={changeQuantity} onCheckout={() => { setCartOpen(false); setCheckoutOpen(true); }} />}
+        {checkoutOpen && <Checkout key="checkout" subtotal={cartTotal} deliveryFee={deliveryFee} total={orderTotal} form={form} setForm={setForm} isSubmitting={isSubmitting} storeOpen={storeOpen} onClose={() => setCheckoutOpen(false)} onSubmit={checkout} />}
+      </AnimatePresence>
+    </MotionConfig>
   );
 }
 
@@ -224,22 +218,32 @@ function ProductCard({ product, onAdd, storeOpen }) {
 
   function toggleExtra(id) { setExtraIds((selected) => selected.includes(id) ? selected.filter((item) => item !== id) : [...selected, id]); }
 
-  return <article className="product-card reveal">
+  return <motion.article className="product-card" variants={fadeUp} transition={{ duration: 0.5, ease: "easeOut" }} whileHover={{ y: -6, boxShadow: "0 18px 34px rgba(33,21,20,.14)" }}>
     <div className="food-art"><img src={product.photo} alt={product.name} /><p>{product.tag}</p></div>
     <div className="product-content"><div className="product-top"><h3>{product.name}</h3><strong>{formatPrice(product.price)}</strong></div><p>{product.description}</p>
       <fieldset><legend>Agrega extras</legend>{extras.map((extra) => <label className="extra" key={extra.id}><input type="checkbox" checked={extraIds.includes(extra.id)} onChange={() => toggleExtra(extra.id)} /><span>{extra.name}</span><b>+ {formatPrice(extra.price)}</b></label>)}</fieldset>
-      <button className="add-button" onClick={() => onAdd(product, selectedExtras)} disabled={!storeOpen}>{storeOpen ? <>Agregar · {formatPrice(total)} <span>+</span></> : "Cerrado por ahora"}</button>
+      <motion.button className="add-button" onClick={() => onAdd(product, selectedExtras)} disabled={!storeOpen} whileTap={storeOpen ? { scale: 0.97 } : undefined}>{storeOpen ? <>Agregar · {formatPrice(total)} <span>+</span></> : "Cerrado por ahora"}</motion.button>
     </div>
-  </article>;
+  </motion.article>;
 }
 
 function Cart({ cart, total, onClose, onQuantity, onCheckout }) {
-  return <div className="overlay" role="presentation"><aside className="cart" role="dialog" aria-modal="true" aria-label="Tu carrito"><div className="drawer-header"><h2>Tu pedido</h2><button onClick={onClose} aria-label="Cerrar carrito">×</button></div>{cart.length === 0 ? <div className="empty"><p>Aún no agregas nada.</p><button onClick={onClose}>Ver el menú</button></div> : <><div className="cart-items">{cart.map((item) => <div className="cart-item" key={item.key}><div><strong>{item.product}</strong><p>{item.sauce}{item.extras.length ? ` · ${item.extras.map((extra) => extra.name).join(", ")}` : ""}</p><b>{formatPrice(item.unitPrice * item.quantity)}</b></div><div className="quantity"><button onClick={() => onQuantity(item.key, -1)}>−</button><span>{item.quantity}</span><button onClick={() => onQuantity(item.key, 1)}>+</button></div></div>)}</div><div className="cart-total"><span>Total</span><strong>{formatPrice(total)}</strong></div><button className="primary-button checkout" onClick={onCheckout}>Continuar al pago <span>→</span></button></>}</aside></div>;
+  return <motion.div className="overlay" role="presentation" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.2 }}>
+    <motion.aside className="cart" role="dialog" aria-modal="true" aria-label="Tu carrito" initial={{ x: "100%" }} animate={{ x: 0 }} exit={{ x: "100%" }} transition={drawerTransition}>
+      <div className="drawer-header"><h2>Tu pedido</h2><button onClick={onClose} aria-label="Cerrar carrito">×</button></div>
+      {cart.length === 0 ? <div className="empty"><p>Aún no agregas nada.</p><button onClick={onClose}>Ver el menú</button></div> : <><div className="cart-items"><AnimatePresence initial={false}>{cart.map((item) => <motion.div className="cart-item" key={item.key} layout initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, x: 24 }} transition={{ duration: 0.25 }}><div><strong>{item.product}</strong><p>{item.sauce}{item.extras.length ? ` · ${item.extras.map((extra) => extra.name).join(", ")}` : ""}</p><b>{formatPrice(item.unitPrice * item.quantity)}</b></div><div className="quantity"><motion.button whileTap={{ scale: 0.85 }} onClick={() => onQuantity(item.key, -1)}>−</motion.button><span>{item.quantity}</span><motion.button whileTap={{ scale: 0.85 }} onClick={() => onQuantity(item.key, 1)}>+</motion.button></div></motion.div>)}</AnimatePresence></div><div className="cart-total"><span>Total</span><strong>{formatPrice(total)}</strong></div><motion.button className="primary-button checkout" whileTap={{ scale: 0.97 }} onClick={onCheckout}>Continuar al pago <span>→</span></motion.button></>}
+    </motion.aside>
+  </motion.div>;
 }
 
 function Checkout({ subtotal, deliveryFee, total, form, setForm, isSubmitting, storeOpen, onClose, onSubmit }) {
   function update(event) { setForm({ ...form, [event.target.name]: event.target.value }); }
-  return <div className="overlay" role="presentation"><section className="checkout-modal" role="dialog" aria-modal="true" aria-label="Finalizar pedido"><div className="drawer-header"><h2>Finaliza tu pedido</h2><button onClick={onClose} aria-label="Cerrar">×</button></div><form onSubmit={onSubmit}><label>Nombre<input required maxLength={100} name="name" value={form.name} onChange={update} placeholder="Tu nombre" /></label><label>Teléfono<input required maxLength={30} type="tel" name="phone" value={form.phone} onChange={update} placeholder="+56 9 ..." /></label><label>Comuna<select name="comuna" value={form.comuna} onChange={update}>{COMUNAS.map((comuna) => <option key={comuna}>{comuna}</option>)}</select><small>Solo hacemos despacho a Puente Alto, San Bernardo, El Bosque y La Pintana.</small></label><label>Dirección<input required maxLength={200} name="address" value={form.address} onChange={update} placeholder="Calle, número y depto/casa" /></label><div className="payment-box">{storeOpen ? <><span>Método de pago</span><strong>Pago online seguro con Mercado Pago</strong><small>Te redirigiremos para completar el pago.</small></> : <><span>Estamos cerrados</span><strong>Solo recibimos pedidos sábado y domingo</strong><small>De 12:00 a 20:00 hrs. Vuelve a intentarlo en ese horario.</small></>}</div><div className="checkout-subtotal"><span>Subtotal</span><span>{formatPrice(subtotal)}</span></div><div className="checkout-subtotal"><span>Despacho</span><span>{formatPrice(deliveryFee)}</span></div><div className="checkout-total"><span>Total del pedido</span><strong>{formatPrice(total)}</strong></div><button className="primary-button checkout" type="submit" disabled={isSubmitting || !storeOpen}>{isSubmitting ? "Abriendo pago..." : "Ir a pagar"} <span>→</span></button><p className="secure-note">No almacenamos datos de tu tarjeta.</p></form></section></div>;
+  return <motion.div className="overlay" role="presentation" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.2 }}>
+    <motion.section className="checkout-modal" role="dialog" aria-modal="true" aria-label="Finalizar pedido" initial={{ x: "100%" }} animate={{ x: 0 }} exit={{ x: "100%" }} transition={drawerTransition}>
+      <div className="drawer-header"><h2>Finaliza tu pedido</h2><button onClick={onClose} aria-label="Cerrar">×</button></div>
+      <form onSubmit={onSubmit}><label>Nombre<input required maxLength={100} name="name" value={form.name} onChange={update} placeholder="Tu nombre" /></label><label>Teléfono<input required maxLength={30} type="tel" name="phone" value={form.phone} onChange={update} placeholder="+56 9 ..." /></label><label>Comuna<select name="comuna" value={form.comuna} onChange={update}>{COMUNAS.map((comuna) => <option key={comuna}>{comuna}</option>)}</select><small>Solo hacemos despacho a Puente Alto, San Bernardo, El Bosque y La Pintana.</small></label><label>Dirección<input required maxLength={200} name="address" value={form.address} onChange={update} placeholder="Calle, número y depto/casa" /></label><div className="payment-box">{storeOpen ? <><span>Método de pago</span><strong>Pago online seguro con Mercado Pago</strong><small>Te redirigiremos para completar el pago.</small></> : <><span>Estamos cerrados</span><strong>Solo recibimos pedidos sábado y domingo</strong><small>De 12:00 a 20:00 hrs. Vuelve a intentarlo en ese horario.</small></>}</div><div className="checkout-subtotal"><span>Subtotal</span><span>{formatPrice(subtotal)}</span></div><div className="checkout-subtotal"><span>Despacho</span><span>{formatPrice(deliveryFee)}</span></div><div className="checkout-total"><span>Total del pedido</span><strong>{formatPrice(total)}</strong></div><motion.button className="primary-button checkout" type="submit" disabled={isSubmitting || !storeOpen} whileTap={!isSubmitting && storeOpen ? { scale: 0.97 } : undefined}>{isSubmitting ? "Abriendo pago..." : "Ir a pagar"} <span>→</span></motion.button><p className="secure-note">No almacenamos datos de tu tarjeta.</p></form>
+    </motion.section>
+  </motion.div>;
 }
 
 export default App;
