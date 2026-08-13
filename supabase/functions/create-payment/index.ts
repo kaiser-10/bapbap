@@ -99,7 +99,7 @@ Deno.serve(async (request) => {
       total,
       payment_provider: "mercado_pago",
       payment_status: "pendiente",
-    }).select("id").single();
+    }).select("id, order_number").single();
     if (orderError) throw orderError;
 
     const payment = await fetch("https://api.mercadopago.com/checkout/preferences", {
@@ -117,9 +117,9 @@ Deno.serve(async (request) => {
         ],
         external_reference: order.id,
         back_urls: {
-          success: `${siteUrl}/payment.html?result=success`,
-          pending: `${siteUrl}/payment.html?result=pending`,
-          failure: `${siteUrl}/payment.html?result=failure`,
+          success: `${siteUrl}/payment.html?result=success&pedido=${order.order_number}`,
+          pending: `${siteUrl}/payment.html?result=pending&pedido=${order.order_number}`,
+          failure: `${siteUrl}/payment.html?result=failure&pedido=${order.order_number}`,
         },
         auto_return: "approved",
       }),
