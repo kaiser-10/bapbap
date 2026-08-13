@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { supabase } from "./lib/supabase";
 import "./admin.css";
@@ -48,6 +48,47 @@ function useClock() {
   return now;
 }
 
+function useAlertSound() {
+  const contextRef = useRef(null);
+
+  useEffect(() => {
+    // Los navegadores bloquean el audio hasta que hay un gesto del usuario:
+    // preparamos (y despertamos) el contexto con cualquier clic o tecla.
+    function prime() {
+      const AudioCtx = window.AudioContext ?? window.webkitAudioContext;
+      if (!AudioCtx) return;
+      if (!contextRef.current) contextRef.current = new AudioCtx();
+      if (contextRef.current.state === "suspended") contextRef.current.resume();
+    }
+    window.addEventListener("pointerdown", prime);
+    window.addEventListener("keydown", prime);
+    return () => {
+      window.removeEventListener("pointerdown", prime);
+      window.removeEventListener("keydown", prime);
+    };
+  }, []);
+
+  return useCallback(() => {
+    const context = contextRef.current;
+    if (!context) return;
+    if (context.state === "suspended") context.resume();
+    [0, 0.32, 0.64].forEach((offset) => {
+      const oscillator = context.createOscillator();
+      const gain = context.createGain();
+      oscillator.connect(gain);
+      gain.connect(context.destination);
+      oscillator.type = "sine";
+      oscillator.frequency.value = 880;
+      const start = context.currentTime + offset;
+      gain.gain.setValueAtTime(0, start);
+      gain.gain.linearRampToValueAtTime(0.25, start + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.26);
+      oscillator.start(start);
+      oscillator.stop(start + 0.3);
+    });
+  }, []);
+}
+
 function Admin() {
   const now = useClock();
   const [session, setSession] = useState(null);
@@ -56,6 +97,9 @@ function Admin() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [filter, setFilter] = useState("todos");
+  const [unseen, setUnseen] = useState(0);
+  const knownOrderIds = useRef(null);
+  const playAlert = useAlertSound();
 
   useEffect(() => {
     if (!supabase) return;
@@ -64,15 +108,23 @@ function Admin() {
     return () => listener.subscription.unsubscribe();
   }, []);
 
-  async function loadOrders() {
-    setLoading(true); setError("");
+  // silent: las recargas por realtime no deben vaciar la pantalla mientras se preparan pedidos.
+  async function loadOrders({ silent = false } = {}) {
+    if (!silent) setLoading(true);
+    setError("");
     const { data, error: requestError } = await supabase.from("orders").select("*").eq("payment_status", "pagado").order("created_at", { ascending: false });
     if (requestError) setError("No fue posible cargar los pedidos. Revisa el permiso de administrador en Supabase.");
     else {
+      const known = knownOrderIds.current;
+      if (known) {
+        const arrived = data.filter((order) => !known.has(order.id));
+        if (arrived.length) { playAlert(); setUnseen((count) => count + arrived.length); }
+      }
+      knownOrderIds.current = new Set(data.map((order) => order.id));
       setOrders(data);
       setSelected((current) => (current ? data.find((order) => order.id === current.id) ?? null : current));
     }
-    setLoading(false);
+    if (!silent) setLoading(false);
   }
 
   useEffect(() => { if (session) loadOrders(); }, [session]);
@@ -81,10 +133,15 @@ function Admin() {
     if (!session) return;
     const channel = supabase
       .channel("orders-changes")
-      .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, () => loadOrders())
+      .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, () => loadOrders({ silent: true }))
       .subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [session]);
+
+  // El contador viaja al título para verlo aunque la pestaña esté en segundo plano.
+  useEffect(() => {
+    document.title = unseen > 0 ? `(${unseen}) ¡Pedido nuevo! · bapbap` : "Pedidos | bapbap";
+  }, [unseen]);
 
   async function updateStatus(order, status) {
     const { error: requestError } = await supabase.from("orders").update({ status }).eq("id", order.id);
@@ -102,8 +159,9 @@ function Admin() {
   const salesWeek = sumSince(orders, startOfWeek(now));
 
   return <main className="admin-shell">
+    {unseen > 0 && <button className="new-order-alert" onClick={() => setUnseen(0)}>🔔 {unseen === 1 ? "1 pedido nuevo" : `${unseen} pedidos nuevos`} · toca para silenciar</button>}
     <header className="admin-header"><a className="brand" href="/"><strong>bapbap</strong></a><div><span className="admin-clock">{formatTime(now)}</span><span className="admin-email">{session.user.email}</span><button className="link-button" onClick={() => supabase.auth.signOut()}>Cerrar sesión</button></div></header>
-    <section className="admin-intro"><div><p className="eyebrow">ADMINISTRACIÓN</p><h1>Pedidos</h1><p>Revisa, confirma y prepara cada pedido desde un solo lugar.</p></div><button className="refresh-button" onClick={loadOrders}>↻ Actualizar</button></section>
+    <section className="admin-intro"><div><p className="eyebrow">ADMINISTRACIÓN</p><h1>Pedidos</h1><p>Revisa, confirma y prepara cada pedido desde un solo lugar.</p></div><div className="admin-actions"><button className="refresh-button" onClick={playAlert}>🔔 Probar sonido</button><button className="refresh-button" onClick={() => loadOrders()}>↻ Actualizar</button></div></section>
     <section className="admin-stats"><div><span>Ventas hoy</span><strong>{pesos.format(salesToday)}</strong></div><div><span>Ventas esta semana</span><strong>{pesos.format(salesWeek)}</strong></div><div><span>Total</span><strong>{orders.length}</strong></div><div><span>Nuevos</span><strong>{newCount}</strong></div><div><span>En preparación</span><strong>{orders.filter((order) => order.status === "preparando").length}</strong></div></section>
     <div className="filters">{["todos", "nuevo", "confirmado", "preparando", "enviado", "entregado"].map((item) => <button className={filter === item ? "active" : ""} onClick={() => setFilter(item)} key={item}>{item === "todos" ? "Todos" : statusLabels[item]}</button>)}</div>
     {error && <p className="admin-error">{error}</p>}
