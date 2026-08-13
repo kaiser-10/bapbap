@@ -6,12 +6,12 @@ const corsHeaders = {
 };
 
 const portions = new Map([
-  ["Porción individual", 6990],
-  ["Para compartir", 11990],
+  ["Porción de 2 personas", 10990],
+  ["Porción familiar", 16990],
 ]);
 const DEFAULT_SAUCE = "Yangnyeom";
 const extras = new Map([
-  ["Arroz extra", 2000],
+  ["Agregar porción de arroz", 2000],
   ["Salsa extra", 1500],
 ]);
 const DELIVERY_FEE = 2990;

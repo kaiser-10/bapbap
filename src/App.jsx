@@ -8,18 +8,18 @@ const drawerTransition = { type: "spring", stiffness: 320, damping: 34 };
 const products = [
   {
     id: "individual",
-    name: "Porción individual",
-    description: "Pollo coreano crocante con arroz recién preparado.",
-    price: 6990,
-    tag: "Para una persona",
+    name: "Porción de 2 personas",
+    description: "Pollo coreano crocante con una pequeña porción de nabo.",
+    price: 10990,
+    tag: "Para 2 personas",
     photo: "/photos/pollo-individual.jpg",
   },
   {
     id: "share",
-    name: "Para compartir",
-    description: "Doble porción de pollo coreano con arroz para dos.",
-    price: 11990,
-    tag: "Para dos personas",
+    name: "Porción familiar",
+    description: "Doble porción de pollo coreano crocante con una pequeña porción de nabo.",
+    price: 16990,
+    tag: "Para compartir en familia",
     photo: "/photos/pollo-compartir.jpg",
   },
 ];
@@ -27,7 +27,7 @@ const products = [
 const DEFAULT_SAUCE = "Yangnyeom";
 
 const extras = [
-  { id: "rice", name: "Arroz extra", price: 2000 },
+  { id: "rice", name: "Agregar porción de arroz", price: 2000 },
   { id: "sauce", name: "Salsa extra", price: 1500 },
 ];
 
@@ -188,15 +188,15 @@ function App() {
             <img className="hero-logo" src="/logo-featured.svg" alt="bapbap" />
             <p className="eyebrow">POLLO COREANO EN PUENTE ALTO</p>
             <h1>Crujiente por fuera.<br /><em>Inolvidable</em> por dentro.</h1>
-            <p>Pollo frito coreano bañado en salsa, servido con arroz recién preparado.</p>
+            <p>Pollo frito coreano bañado en salsa, servido con una pequeña porción de nabo.</p>
             <a className="primary-button" href="#menu">Pide ahora <span>↓</span></a>
           </motion.div>
           <motion.div className="hero-image" initial="hidden" animate="visible" variants={fadeUp} transition={{ duration: 0.6, delay: 0.15, ease: "easeOut" }}>
-            <img src="/photos/pollo-hero.jpg" alt="Pollo coreano con arroz" />
+            <img src="/photos/pollo-hero.jpg" alt="Pollo coreano con nabo" />
           </motion.div>
         </section>
 
-        <section className="promise"><span>{storeOpen ? "ABIERTO AHORA" : "CERRADO"} · SÁB Y DOM 12:00-20:00 HRS</span><b>✦</b><span>HECHO AL MOMENTO</span><b>✦</b><span>ARROZ INCLUIDO</span><b>✦</b><span>PAGO ONLINE SEGURO</span></section>
+        <section className="promise"><span>{storeOpen ? "ABIERTO AHORA" : "CERRADO"} · SÁB Y DOM 12:00-20:00 HRS</span><b>✦</b><span>HECHO AL MOMENTO</span><b>✦</b><span>NABO INCLUIDO</span><b>✦</b><span>PAGO ONLINE SEGURO</span></section>
 
         <section className="menu-section" id="menu">
           <div className="section-title reveal"><p className="eyebrow">MENÚ</p><h2>Tu antojo comienza aquí.</h2><p>Elige una porción, personalízala y agrégala al carrito.</p></div>
