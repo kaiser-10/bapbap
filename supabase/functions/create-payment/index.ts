@@ -9,7 +9,6 @@ const portions = new Map([
   ["Porción de 2 personas", 10990],
   ["Porción familiar", 16990],
 ]);
-const DEFAULT_SAUCE = "Yangnyeom";
 const extras = new Map([
   ["Agregar porción de arroz", 2000],
   ["Salsa extra", 1500],
@@ -84,7 +83,7 @@ Deno.serve(async (request) => {
         throw new Error("Producto no válido.");
       }
       const extrasTotal = selectedExtras.reduce((sum, extra) => sum + (extras.get(extra) ?? 0), 0);
-      return { product: item.product, sauce: DEFAULT_SAUCE, extras: selectedExtras, quantity, unit_price: portionPrice + extrasTotal };
+      return { product: item.product, extras: selectedExtras, quantity, unit_price: portionPrice + extrasTotal };
     });
 
     const total = validatedItems.reduce((sum, item) => sum + item.unit_price * item.quantity, 0) + DELIVERY_FEE;
@@ -108,7 +107,7 @@ Deno.serve(async (request) => {
       body: JSON.stringify({
         items: [
           ...validatedItems.map((item) => ({
-            title: `${item.product} · ${item.sauce}${item.extras.length ? ` · ${item.extras.join(", ")}` : ""}`,
+            title: `${item.product}${item.extras.length ? ` · ${item.extras.join(", ")}` : ""}`,
             quantity: item.quantity,
             unit_price: item.unit_price,
             currency_id: "CLP",
