@@ -20,8 +20,6 @@ const OPEN_HOUR = 12;
 const CLOSE_HOUR = 20;
 
 function isStoreOpen(date = new Date()) {
-  // TEMP: prueba de pago real fuera de horario, revertir después
-  if (true) return true;
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone: "America/Santiago",
     weekday: "short",

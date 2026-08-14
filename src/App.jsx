@@ -49,8 +49,6 @@ function getSantiagoParts(date) {
 }
 
 function isStoreOpen(date = new Date()) {
-  // TEMP: prueba de pago real fuera de horario, revertir después
-  if (true) return true;
   const { weekday, hour } = getSantiagoParts(date);
   return OPEN_DAYS.includes(weekday) && hour >= OPEN_HOUR && hour < CLOSE_HOUR;
 }
