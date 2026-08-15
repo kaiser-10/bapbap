@@ -35,6 +35,25 @@ const OPEN_DAYS = ["Sat", "Sun"];
 const OPEN_HOUR = 12;
 const CLOSE_HOUR = 20;
 
+// Pausa puntual: no hay venta hasta esta fecha (formato YYYY-MM-DD, hora de Santiago).
+// Al llegar el día, la tienda vuelve sola a su horario normal; no hay que tocar nada.
+// Para reabrir antes, poner una fecha pasada. Debe coincidir con create-payment.
+const REOPEN_DATE = "2026-08-22";
+const REOPEN_LABEL = "sábado 22 de agosto";
+
+function getSantiagoDate(date) {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Santiago",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(date);
+}
+
+function isOnBreak(date = new Date()) {
+  return getSantiagoDate(date) < REOPEN_DATE;
+}
+
 function getSantiagoParts(date) {
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone: "America/Santiago",
@@ -49,17 +68,22 @@ function getSantiagoParts(date) {
 }
 
 function isStoreOpen(date = new Date()) {
+  if (isOnBreak(date)) return false;
   const { weekday, hour } = getSantiagoParts(date);
   return OPEN_DAYS.includes(weekday) && hour >= OPEN_HOUR && hour < CLOSE_HOUR;
 }
 
-function useStoreOpen() {
-  const [open, setOpen] = useState(() => isStoreOpen());
+function readStoreStatus() {
+  return { open: isStoreOpen(), onBreak: isOnBreak() };
+}
+
+function useStoreStatus() {
+  const [status, setStatus] = useState(readStoreStatus);
   useEffect(() => {
-    const id = setInterval(() => setOpen(isStoreOpen()), 30000);
+    const id = setInterval(() => setStatus(readStoreStatus()), 30000);
     return () => clearInterval(id);
   }, []);
-  return open;
+  return status;
 }
 
 const pesos = new Intl.NumberFormat("es-CL", {
@@ -73,7 +97,7 @@ function formatPrice(price) {
 }
 
 function App() {
-  const storeOpen = useStoreOpen();
+  const { open: storeOpen, onBreak } = useStoreStatus();
   const [cart, setCart] = useState([]);
   const [cartOpen, setCartOpen] = useState(false);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
@@ -137,7 +161,9 @@ function App() {
   async function checkout(event) {
     event.preventDefault();
     if (!storeOpen) {
-      alert("Estamos cerrados. Solo recibimos pedidos sábado y domingo de 12:00 a 20:00 hrs.");
+      alert(onBreak
+        ? `Este fin de semana no hay venta. Volvemos el ${REOPEN_LABEL}.`
+        : "Estamos cerrados. Solo recibimos pedidos sábado y domingo de 12:00 a 20:00 hrs.");
       return;
     }
     if (!supabase) {
@@ -191,12 +217,12 @@ function App() {
           </motion.div>
         </section>
 
-        <section className="promise"><span>{storeOpen ? "ABIERTO AHORA" : "CERRADO"} · SÁB Y DOM 12:00-20:00 HRS</span><b>✦</b><span>HECHO AL MOMENTO</span><b>✦</b><span>NABO INCLUIDO</span><b>✦</b><span>PAGO ONLINE SEGURO</span></section>
+        <section className="promise"><span>{onBreak ? `ESTE FIN DE SEMANA NO HAY VENTA · VOLVEMOS EL ${REOPEN_LABEL.toUpperCase()}` : `${storeOpen ? "ABIERTO AHORA" : "CERRADO"} · SÁB Y DOM 12:00-20:00 HRS`}</span><b>✦</b><span>HECHO AL MOMENTO</span><b>✦</b><span>NABO INCLUIDO</span><b>✦</b><span>PAGO ONLINE SEGURO</span></section>
 
         <section className="menu-section" id="menu">
           <div className="section-title reveal"><p className="eyebrow">MENÚ</p><h2>Tu antojo comienza aquí.</h2><p>Elige una porción, personalízala y agrégala al carrito.</p></div>
           <div className="product-grid">
-            {products.map((product) => <ProductCard key={product.id} product={product} onAdd={addProduct} storeOpen={storeOpen} />)}
+            {products.map((product) => <ProductCard key={product.id} product={product} onAdd={addProduct} storeOpen={storeOpen} onBreak={onBreak} />)}
           </div>
         </section>
 
@@ -212,13 +238,13 @@ function App() {
 
       <AnimatePresence>
         {cartOpen && <Cart key="cart" cart={cart} total={cartTotal} onClose={() => setCartOpen(false)} onQuantity={changeQuantity} onCheckout={() => { setCartOpen(false); setCheckoutOpen(true); }} />}
-        {checkoutOpen && <Checkout key="checkout" subtotal={cartTotal} deliveryFee={deliveryFee} total={orderTotal} form={form} setForm={setForm} isSubmitting={isSubmitting} storeOpen={storeOpen} onClose={() => setCheckoutOpen(false)} onSubmit={checkout} />}
+        {checkoutOpen && <Checkout key="checkout" subtotal={cartTotal} deliveryFee={deliveryFee} total={orderTotal} form={form} setForm={setForm} isSubmitting={isSubmitting} storeOpen={storeOpen} onBreak={onBreak} onClose={() => setCheckoutOpen(false)} onSubmit={checkout} />}
       </AnimatePresence>
     </MotionConfig>
   );
 }
 
-function ProductCard({ product, onAdd, storeOpen }) {
+function ProductCard({ product, onAdd, storeOpen, onBreak }) {
   const [extraIds, setExtraIds] = useState([]);
   const selectedExtras = extras.filter((extra) => extraIds.includes(extra.id));
   const total = product.price + selectedExtras.reduce((sum, extra) => sum + extra.price, 0);
@@ -229,7 +255,7 @@ function ProductCard({ product, onAdd, storeOpen }) {
     <div className="food-art"><img src={product.photo} alt={product.name} /><p>{product.tag}</p></div>
     <div className="product-content"><div className="product-top"><h3>{product.name}</h3><strong>{formatPrice(product.price)}</strong></div><p>{product.description}</p>
       <fieldset><legend>Agrega extras</legend>{extras.map((extra) => <label className="extra" key={extra.id}><input type="checkbox" checked={extraIds.includes(extra.id)} onChange={() => toggleExtra(extra.id)} /><span>{extra.name}</span><b>+ {formatPrice(extra.price)}</b></label>)}</fieldset>
-      <motion.button className="add-button" onClick={() => onAdd(product, selectedExtras)} disabled={!storeOpen} whileTap={storeOpen ? { scale: 0.97 } : undefined}>{storeOpen ? <>Agregar · {formatPrice(total)} <span>+</span></> : "Cerrado por ahora"}</motion.button>
+      <motion.button className="add-button" onClick={() => onAdd(product, selectedExtras)} disabled={!storeOpen} whileTap={storeOpen ? { scale: 0.97 } : undefined}>{storeOpen ? <>Agregar · {formatPrice(total)} <span>+</span></> : onBreak ? `Volvemos el ${REOPEN_LABEL}` : "Cerrado por ahora"}</motion.button>
     </div>
   </motion.article>;
 }
@@ -243,12 +269,12 @@ function Cart({ cart, total, onClose, onQuantity, onCheckout }) {
   </motion.div>;
 }
 
-function Checkout({ subtotal, deliveryFee, total, form, setForm, isSubmitting, storeOpen, onClose, onSubmit }) {
+function Checkout({ subtotal, deliveryFee, total, form, setForm, isSubmitting, storeOpen, onBreak, onClose, onSubmit }) {
   function update(event) { setForm({ ...form, [event.target.name]: event.target.value }); }
   return <motion.div className="overlay" role="presentation" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.2 }}>
     <motion.section className="checkout-modal" role="dialog" aria-modal="true" aria-label="Finalizar pedido" initial={{ x: "100%" }} animate={{ x: 0 }} exit={{ x: "100%" }} transition={drawerTransition}>
       <div className="drawer-header"><h2>Finaliza tu pedido</h2><button onClick={onClose} aria-label="Cerrar">×</button></div>
-      <form onSubmit={onSubmit}><label>Nombre<input required maxLength={100} name="name" value={form.name} onChange={update} placeholder="Tu nombre" /></label><label>Teléfono<input required maxLength={30} type="tel" name="phone" value={form.phone} onChange={update} placeholder="+56 9 ..." /></label><label>Comuna<select name="comuna" value={form.comuna} onChange={update}>{COMUNAS.map((comuna) => <option key={comuna}>{comuna}</option>)}</select><small>Solo hacemos despacho a Puente Alto, San Bernardo, El Bosque y La Pintana.</small></label><label>Dirección<input required maxLength={200} name="address" value={form.address} onChange={update} placeholder="Calle, número y depto/casa" /></label><div className="payment-box">{storeOpen ? <><span>Método de pago</span><strong>Pago online seguro con Mercado Pago</strong><small>Te redirigiremos para completar el pago.</small></> : <><span>Estamos cerrados</span><strong>Solo recibimos pedidos sábado y domingo</strong><small>De 12:00 a 20:00 hrs. Vuelve a intentarlo en ese horario.</small></>}</div><div className="checkout-subtotal"><span>Subtotal</span><span>{formatPrice(subtotal)}</span></div><div className="checkout-subtotal"><span>Despacho</span><span>{formatPrice(deliveryFee)}</span></div><div className="checkout-total"><span>Total del pedido</span><strong>{formatPrice(total)}</strong></div><motion.button className="primary-button checkout" type="submit" disabled={isSubmitting || !storeOpen} whileTap={!isSubmitting && storeOpen ? { scale: 0.97 } : undefined}>{isSubmitting ? "Abriendo pago..." : "Ir a pagar"} <span>→</span></motion.button><p className="secure-note">No almacenamos datos de tu tarjeta.</p></form>
+      <form onSubmit={onSubmit}><label>Nombre<input required maxLength={100} name="name" value={form.name} onChange={update} placeholder="Tu nombre" /></label><label>Teléfono<input required maxLength={30} type="tel" name="phone" value={form.phone} onChange={update} placeholder="+56 9 ..." /></label><label>Comuna<select name="comuna" value={form.comuna} onChange={update}>{COMUNAS.map((comuna) => <option key={comuna}>{comuna}</option>)}</select><small>Solo hacemos despacho a Puente Alto, San Bernardo, El Bosque y La Pintana.</small></label><label>Dirección<input required maxLength={200} name="address" value={form.address} onChange={update} placeholder="Calle, número y depto/casa" /></label><div className="payment-box">{storeOpen ? <><span>Método de pago</span><strong>Pago online seguro con Mercado Pago</strong><small>Te redirigiremos para completar el pago.</small></> : onBreak ? <><span>Este fin de semana no hay venta</span><strong>Volvemos el {REOPEN_LABEL}</strong><small>Disculpa las molestias. Te esperamos ese día de 12:00 a 20:00 hrs.</small></> : <><span>Estamos cerrados</span><strong>Solo recibimos pedidos sábado y domingo</strong><small>De 12:00 a 20:00 hrs. Vuelve a intentarlo en ese horario.</small></>}</div><div className="checkout-subtotal"><span>Subtotal</span><span>{formatPrice(subtotal)}</span></div><div className="checkout-subtotal"><span>Despacho</span><span>{formatPrice(deliveryFee)}</span></div><div className="checkout-total"><span>Total del pedido</span><strong>{formatPrice(total)}</strong></div><motion.button className="primary-button checkout" type="submit" disabled={isSubmitting || !storeOpen} whileTap={!isSubmitting && storeOpen ? { scale: 0.97 } : undefined}>{isSubmitting ? "Abriendo pago..." : "Ir a pagar"} <span>→</span></motion.button><p className="secure-note">No almacenamos datos de tu tarjeta.</p></form>
     </motion.section>
   </motion.div>;
 }

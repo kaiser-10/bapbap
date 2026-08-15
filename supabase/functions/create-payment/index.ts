@@ -19,7 +19,22 @@ const OPEN_DAYS = ["Sat", "Sun"];
 const OPEN_HOUR = 12;
 const CLOSE_HOUR = 20;
 
+// Pausa puntual: no hay venta hasta esta fecha (YYYY-MM-DD, hora de Santiago).
+// Debe coincidir con REOPEN_DATE en src/App.jsx.
+const REOPEN_DATE = "2026-08-22";
+
+function isOnBreak(date = new Date()) {
+  const today = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Santiago",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(date);
+  return today < REOPEN_DATE;
+}
+
 function isStoreOpen(date = new Date()) {
+  if (isOnBreak(date)) return false;
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone: "America/Santiago",
     weekday: "short",
@@ -57,7 +72,11 @@ Deno.serve(async (request) => {
     }
 
     if (!isStoreOpen()) {
-      return response({ error: "Estamos cerrados. Solo recibimos pedidos sábado y domingo de 12:00 a 20:00 hrs." }, 400);
+      return response({
+        error: isOnBreak()
+          ? "Este fin de semana no hay venta. Volvemos el sábado 22 de agosto."
+          : "Estamos cerrados. Solo recibimos pedidos sábado y domingo de 12:00 a 20:00 hrs.",
+      }, 400);
     }
 
     const body = await request.json();
