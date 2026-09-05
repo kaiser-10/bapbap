@@ -6,13 +6,14 @@ const corsHeaders = {
 };
 
 const portions = new Map([
-  ["Porción de 2 personas", 10990],
-  ["Porción familiar", 16990],
+  ["Media porción", 11990],
+  ["Porción (2 a 3 personas)", 19990],
 ]);
 const extras = new Map([
   ["Agregar porción de arroz", 2000],
-  ["Salsa extra", 1500],
 ]);
+// Preferencia de servido, sin costo. Debe coincidir con SAUCE_CHOICES en src/App.jsx.
+const SAUCE_CHOICES = new Set(["Con salsa", "Sin salsa", "Salsa aparte"]);
 const DELIVERY_FEE = 2990;
 const COMUNAS = new Set(["Puente Alto", "San Bernardo", "El Bosque", "La Pintana"]);
 const OPEN_DAYS = ["Sat", "Sun"];
@@ -113,15 +114,15 @@ Deno.serve(async (request) => {
       return response({ error: "Los datos del pedido no son válidos." }, 400);
     }
 
-    const validatedItems = submittedItems.map((item: { product?: string; extras?: string[]; quantity?: number }) => {
+    const validatedItems = submittedItems.map((item: { product?: string; sauce?: string; extras?: string[]; quantity?: number }) => {
       const portionPrice = portions.get(item.product ?? "");
       const selectedExtras = Array.isArray(item.extras) ? item.extras : [];
       const quantity = Number(item.quantity);
-      if (!portionPrice || !Number.isInteger(quantity) || quantity < 1 || quantity > 10 || selectedExtras.some((extra) => !extras.has(extra))) {
+      if (!portionPrice || !SAUCE_CHOICES.has(item.sauce ?? "") || !Number.isInteger(quantity) || quantity < 1 || quantity > 10 || selectedExtras.some((extra) => !extras.has(extra))) {
         throw new Error("Producto no válido.");
       }
       const extrasTotal = selectedExtras.reduce((sum, extra) => sum + (extras.get(extra) ?? 0), 0);
-      return { product: item.product, extras: selectedExtras, quantity, unit_price: portionPrice + extrasTotal };
+      return { product: item.product, sauce: item.sauce, extras: selectedExtras, quantity, unit_price: portionPrice + extrasTotal };
     });
 
     const total = validatedItems.reduce((sum, item) => sum + item.unit_price * item.quantity, 0) + DELIVERY_FEE;
@@ -151,7 +152,7 @@ Deno.serve(async (request) => {
       body: JSON.stringify({
         items: [
           ...validatedItems.map((item) => ({
-            title: `${item.product}${item.extras.length ? ` · ${item.extras.join(", ")}` : ""}`,
+            title: `${item.product} · ${item.sauce}${item.extras.length ? ` · ${item.extras.join(", ")}` : ""}`,
             quantity: item.quantity,
             unit_price: item.unit_price,
             currency_id: "CLP",
