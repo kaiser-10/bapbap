@@ -252,7 +252,7 @@ function App() {
           </motion.div>
         </section>
 
-        <section className="promise"><span>{soldOut ? "AGOTADO POR HOY · VUELVE EN EL PRÓXIMO SERVICIO" : onBreak ? `ESTE FIN DE SEMANA NO HAY VENTA · VOLVEMOS EL ${REOPEN_LABEL.toUpperCase()}` : `${storeOpen ? "ABIERTO AHORA" : "CERRADO"} · SÁB Y DOM 12:00-17:00 HRS`}</span><b>✦</b><span>HECHO AL MOMENTO</span><b>✦</b><span>NABO INCLUIDO</span><b>✦</b><span>PAGO SEGURO CON MERCADO PAGO</span></section>
+        <section className="promise"><span>{soldOut ? "AGOTADO POR HOY · VUELVE EN EL PRÓXIMO SERVICIO" : onBreak ? `ESTE FIN DE SEMANA NO HAY VENTA · VOLVEMOS EL ${REOPEN_LABEL.toUpperCase()}` : storeOpen ? `ABIERTO AHORA · HASTA LAS ${CLOSE_HOUR}:00 HRS` : `CERRADO · ABRIMOS SÁB Y DOM ${OPEN_HOUR}:00-${CLOSE_HOUR}:00 HRS`}</span><b>✦</b><span>HECHO AL MOMENTO</span><b>✦</b><span>NABO INCLUIDO</span><b>✦</b><span>PAGO SEGURO CON MERCADO PAGO</span></section>
 
         <section className="menu-section" id="menu">
           <div className="section-title reveal"><p className="eyebrow">MENÚ</p><h2>Tu antojo comienza aquí.</h2><p>Elige una porción, personalízala y agrégala al carrito.</p></div>
