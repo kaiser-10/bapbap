@@ -290,7 +290,7 @@ function ProductCard({ product, onAdd, storeOpen, onBreak, soldOut }) {
   return <motion.article className="product-card reveal" whileHover={{ y: -6, boxShadow: "0 18px 34px rgba(33,21,20,.14)" }}>
     <div className="food-art"><img src={product.photo} alt={product.name} />{product.tag ? <p>{product.tag}</p> : null}</div>
     <div className="product-content"><div className="product-top"><h3>{product.name}</h3><strong>{formatPrice(product.price)}</strong></div><p>{product.description}</p>
-      <fieldset><legend>¿Cómo quieres la salsa?</legend>{SAUCE_CHOICES.map((choice) => <label className="extra" key={choice}><input type="radio" name={`sauce-${product.id}`} value={choice} checked={sauce === choice} onChange={() => setSauce(choice)} /><span>{choice}</span></label>)}</fieldset>
+      <fieldset><legend>¿Cómo quieres el pollo?</legend>{SAUCE_CHOICES.map((choice) => <label className="extra" key={choice}><input type="radio" name={`sauce-${product.id}`} value={choice} checked={sauce === choice} onChange={() => setSauce(choice)} /><span>{choice}</span></label>)}</fieldset>
       <fieldset><legend>Agrega extras</legend>{extras.map((extra) => <label className="extra" key={extra.id}><input type="checkbox" checked={extraIds.includes(extra.id)} onChange={() => toggleExtra(extra.id)} /><span>{extra.name}</span><b>+ {formatPrice(extra.price)}</b></label>)}</fieldset>
       <motion.button className="add-button" onClick={() => onAdd(product, selectedExtras, sauce)} disabled={!storeOpen} whileTap={storeOpen ? { scale: 0.97 } : undefined}>{storeOpen ? <>Agregar · {formatPrice(total)} <span>+</span></> : soldOut ? "Agotado por hoy" : onBreak ? `Volvemos el ${REOPEN_LABEL}` : "Cerrado por ahora"}</motion.button>
     </div>
