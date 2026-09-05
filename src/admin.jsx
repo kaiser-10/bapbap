@@ -22,6 +22,27 @@ function formatDateTime(date) {
   return new Date(date).toLocaleString("es-CL", { dateStyle: "short", timeStyle: "short" });
 }
 
+// Mensaje sugerido según en qué va el pedido. El botón solo abre el chat con el
+// texto escrito: enviarlo sigue siendo una decisión manual.
+const whatsappMessages = {
+  nuevo: (name, n) => `Hola ${name} 👋 Recibimos tu pedido #${n} y ya lo estamos preparando.`,
+  confirmado: (name, n) => `Hola ${name} 👋 Confirmamos tu pedido #${n}, ya lo estamos preparando.`,
+  preparando: (name, n) => `Hola ${name} 👋 Tu pedido #${n} está en preparación, te avisamos cuando salga.`,
+  enviado: (name, n) => `Hola ${name} 👋 Tu pedido #${n} ya va en camino 🐔`,
+  entregado: (name, n) => `Hola ${name} 👋 ¡Gracias por tu compra! Esperamos que hayas disfrutado tu pedido #${n}.`,
+  cancelado: (name, n) => `Hola ${name} 👋 Te escribimos por tu pedido #${n}.`,
+};
+
+// Los clientes escriben el teléfono de muchas formas ("+56 9 ...", "9 1234 5678"),
+// así que se deja solo en dígitos y se antepone el código de país.
+function whatsappLink(order) {
+  const digits = String(order.customer_phone ?? "").replace(/\D/g, "");
+  if (!digits) return null;
+  const number = digits.startsWith("56") ? digits : `56${digits}`;
+  const build = whatsappMessages[order.status] ?? whatsappMessages.nuevo;
+  return `https://wa.me/${number}?text=${encodeURIComponent(build(order.customer_name, order.order_number))}`;
+}
+
 // El "agotado" se guarda como la fecha en que se marcó, en hora de Santiago:
 // solo vale para hoy, así la tienda se reactiva sola en el próximo servicio.
 function santiagoToday() {
@@ -219,7 +240,7 @@ function OrderDetail({ order, onStatusChange }) {
   // así cada pedido muestra el valor que se le cobró aunque la tarifa cambie después.
   const itemsTotal = order.items.reduce((sum, item) => sum + item.unit_price * item.quantity, 0);
   const deliveryFee = order.total - itemsTotal;
-  return <aside className="order-detail"><div className="detail-heading"><div><span className={`status ${order.status}`}>{statusLabels[order.status]}</span><h2>#{order.order_number} · {order.customer_name}</h2><small>{formatDateTime(order.created_at)}</small></div><strong>{pesos.format(order.total)}</strong></div><section><h3>Contacto</h3><p>{order.customer_phone}</p></section><section><h3>Delivery</h3><p>{order.comuna}</p><p>{order.delivery_address}</p><p>Despacho: {pesos.format(deliveryFee)}</p></section><section><h3>Pedido</h3>{order.items.map((item, index) => <div className="item" key={index}><strong>{item.quantity}× {item.product}</strong>{item.sauce ? <span className="item-sauce">{item.sauce}</span> : null}{item.extras?.length ? <span>{item.extras.join(", ")}</span> : null}</div>)}</section><section><h3>Actualizar estado</h3><select value={order.status} onChange={(event) => onStatusChange(order, event.target.value)}>{Object.entries(statusLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></section></aside>;
+  return <aside className="order-detail"><div className="detail-heading"><div><span className={`status ${order.status}`}>{statusLabels[order.status]}</span><h2>#{order.order_number} · {order.customer_name}</h2><small>{formatDateTime(order.created_at)}</small></div><strong>{pesos.format(order.total)}</strong></div><section><h3>Contacto</h3><p>{order.customer_phone}</p>{whatsappLink(order) ? <a className="whatsapp-button" href={whatsappLink(order)} target="_blank" rel="noreferrer">💬 Escribir por WhatsApp</a> : null}</section><section><h3>Delivery</h3><p>{order.comuna}</p><p>{order.delivery_address}</p><p>Despacho: {pesos.format(deliveryFee)}</p></section><section><h3>Pedido</h3>{order.items.map((item, index) => <div className="item" key={index}><strong>{item.quantity}× {item.product}</strong>{item.sauce ? <span className="item-sauce">{item.sauce}</span> : null}{item.extras?.length ? <span>{item.extras.join(", ")}</span> : null}</div>)}</section><section><h3>Actualizar estado</h3><select value={order.status} onChange={(event) => onStatusChange(order, event.target.value)}>{Object.entries(statusLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></section></aside>;
 }
 
 createRoot(document.getElementById("root")).render(<Admin />);
