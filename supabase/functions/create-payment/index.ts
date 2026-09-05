@@ -11,6 +11,7 @@ const portions = new Map([
 ]);
 const extras = new Map([
   ["Agregar porción de arroz", 2000],
+  ["Coca-Cola en lata", 1500],
 ]);
 // Preferencia de servido, sin costo. Debe coincidir con SAUCE_CHOICES en src/App.jsx.
 const SAUCE_CHOICES = new Set(["Con salsa", "Sin salsa", "Salsa aparte"]);

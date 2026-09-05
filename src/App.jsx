@@ -24,6 +24,7 @@ const products = [
 
 const extras = [
   { id: "rice", name: "Agregar porción de arroz", price: 2000 },
+  { id: "coke", name: "Coca-Cola en lata", price: 1500 },
 ];
 
 // Preferencia de servido, sin costo. El orden importa: el primero es el que viene marcado.
