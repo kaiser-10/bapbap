@@ -34,7 +34,7 @@ const DELIVERY_FEE = 2990;
 const COMUNAS = ["Puente Alto", "San Bernardo", "El Bosque", "La Pintana"];
 const OPEN_DAYS = ["Sat", "Sun"];
 const OPEN_HOUR = 12;
-const CLOSE_HOUR = 20;
+const CLOSE_HOUR = 17;
 
 // Pausa puntual: no hay venta hasta esta fecha (formato YYYY-MM-DD, hora de Santiago).
 // Al llegar el día, la tienda vuelve sola a su horario normal; no hay que tocar nada.
@@ -197,7 +197,7 @@ function App() {
         ? "Se nos acabó el stock por hoy. ¡Te esperamos en el próximo servicio!"
         : onBreak
           ? `Este fin de semana no hay venta. Volvemos el ${REOPEN_LABEL}.`
-          : "Estamos cerrados. Solo recibimos pedidos sábado y domingo de 12:00 a 20:00 hrs.");
+          : "Estamos cerrados. Solo recibimos pedidos sábado y domingo de 12:00 a 17:00 hrs.");
       return;
     }
     if (!supabase) {
@@ -252,7 +252,7 @@ function App() {
           </motion.div>
         </section>
 
-        <section className="promise"><span>{soldOut ? "AGOTADO POR HOY · VUELVE EN EL PRÓXIMO SERVICIO" : onBreak ? `ESTE FIN DE SEMANA NO HAY VENTA · VOLVEMOS EL ${REOPEN_LABEL.toUpperCase()}` : `${storeOpen ? "ABIERTO AHORA" : "CERRADO"} · SÁB Y DOM 12:00-20:00 HRS`}</span><b>✦</b><span>HECHO AL MOMENTO</span><b>✦</b><span>NABO INCLUIDO</span><b>✦</b><span>PAGO ONLINE SEGURO</span></section>
+        <section className="promise"><span>{soldOut ? "AGOTADO POR HOY · VUELVE EN EL PRÓXIMO SERVICIO" : onBreak ? `ESTE FIN DE SEMANA NO HAY VENTA · VOLVEMOS EL ${REOPEN_LABEL.toUpperCase()}` : `${storeOpen ? "ABIERTO AHORA" : "CERRADO"} · SÁB Y DOM 12:00-17:00 HRS`}</span><b>✦</b><span>HECHO AL MOMENTO</span><b>✦</b><span>NABO INCLUIDO</span><b>✦</b><span>PAGO ONLINE SEGURO</span></section>
 
         <section className="menu-section" id="menu">
           <div className="section-title reveal"><p className="eyebrow">MENÚ</p><h2>Tu antojo comienza aquí.</h2><p>Elige una porción, personalízala y agrégala al carrito.</p></div>
@@ -311,7 +311,7 @@ function Checkout({ subtotal, deliveryFee, total, form, setForm, isSubmitting, s
   return <motion.div className="overlay" role="presentation" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.2 }}>
     <motion.section className="checkout-modal" role="dialog" aria-modal="true" aria-label="Finalizar pedido" initial={{ x: "100%" }} animate={{ x: 0 }} exit={{ x: "100%" }} transition={drawerTransition}>
       <div className="drawer-header"><h2>Finaliza tu pedido</h2><button onClick={onClose} aria-label="Cerrar">×</button></div>
-      <form onSubmit={onSubmit}><label>Nombre<input required maxLength={100} name="name" value={form.name} onChange={update} placeholder="Tu nombre" /></label><label>Teléfono<input required maxLength={30} type="tel" name="phone" value={form.phone} onChange={update} placeholder="+56 9 ..." /></label><label>Comuna<select name="comuna" value={form.comuna} onChange={update}>{COMUNAS.map((comuna) => <option key={comuna}>{comuna}</option>)}</select><small>Solo hacemos despacho a Puente Alto, San Bernardo, El Bosque y La Pintana.</small></label><label>Dirección<input required maxLength={200} name="address" value={form.address} onChange={update} placeholder="Calle, número y depto/casa" /></label><div className="payment-box">{storeOpen ? <><span>Método de pago</span><strong>Pago online seguro con Mercado Pago</strong><small>Te redirigiremos para completar el pago.</small></> : soldOut ? <><span>Agotado por hoy</span><strong>Se nos acabó el stock</strong><small>Gracias por preferirnos. Te esperamos en el próximo servicio.</small></> : onBreak ? <><span>Este fin de semana no hay venta</span><strong>Volvemos el {REOPEN_LABEL}</strong><small>Disculpa las molestias. Te esperamos ese día de 12:00 a 20:00 hrs.</small></> : <><span>Estamos cerrados</span><strong>Solo recibimos pedidos sábado y domingo</strong><small>De 12:00 a 20:00 hrs. Vuelve a intentarlo en ese horario.</small></>}</div><div className="checkout-subtotal"><span>Subtotal</span><span>{formatPrice(subtotal)}</span></div><div className="checkout-subtotal"><span>Despacho</span><span>{formatPrice(deliveryFee)}</span></div><div className="checkout-total"><span>Total del pedido</span><strong>{formatPrice(total)}</strong></div><motion.button className="primary-button checkout" type="submit" disabled={isSubmitting || !storeOpen} whileTap={!isSubmitting && storeOpen ? { scale: 0.97 } : undefined}>{isSubmitting ? "Abriendo pago..." : "Ir a pagar"} <span>→</span></motion.button><p className="secure-note">No almacenamos datos de tu tarjeta.</p></form>
+      <form onSubmit={onSubmit}><label>Nombre<input required maxLength={100} name="name" value={form.name} onChange={update} placeholder="Tu nombre" /></label><label>Teléfono<input required maxLength={30} type="tel" name="phone" value={form.phone} onChange={update} placeholder="+56 9 ..." /></label><label>Comuna<select name="comuna" value={form.comuna} onChange={update}>{COMUNAS.map((comuna) => <option key={comuna}>{comuna}</option>)}</select><small>Solo hacemos despacho a Puente Alto, San Bernardo, El Bosque y La Pintana.</small></label><label>Dirección<input required maxLength={200} name="address" value={form.address} onChange={update} placeholder="Calle, número y depto/casa" /></label><div className="payment-box">{storeOpen ? <><span>Método de pago</span><strong>Pago online seguro con Mercado Pago</strong><small>Te redirigiremos para completar el pago.</small></> : soldOut ? <><span>Agotado por hoy</span><strong>Se nos acabó el stock</strong><small>Gracias por preferirnos. Te esperamos en el próximo servicio.</small></> : onBreak ? <><span>Este fin de semana no hay venta</span><strong>Volvemos el {REOPEN_LABEL}</strong><small>Disculpa las molestias. Te esperamos ese día de 12:00 a 17:00 hrs.</small></> : <><span>Estamos cerrados</span><strong>Solo recibimos pedidos sábado y domingo</strong><small>De 12:00 a 17:00 hrs. Vuelve a intentarlo en ese horario.</small></>}</div><div className="checkout-subtotal"><span>Subtotal</span><span>{formatPrice(subtotal)}</span></div><div className="checkout-subtotal"><span>Despacho</span><span>{formatPrice(deliveryFee)}</span></div><div className="checkout-total"><span>Total del pedido</span><strong>{formatPrice(total)}</strong></div><motion.button className="primary-button checkout" type="submit" disabled={isSubmitting || !storeOpen} whileTap={!isSubmitting && storeOpen ? { scale: 0.97 } : undefined}>{isSubmitting ? "Abriendo pago..." : "Ir a pagar"} <span>→</span></motion.button><p className="secure-note">No almacenamos datos de tu tarjeta.</p></form>
     </motion.section>
   </motion.div>;
 }

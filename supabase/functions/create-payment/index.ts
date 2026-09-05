@@ -18,7 +18,7 @@ const DELIVERY_FEE = 2990;
 const COMUNAS = new Set(["Puente Alto", "San Bernardo", "El Bosque", "La Pintana"]);
 const OPEN_DAYS = ["Sat", "Sun"];
 const OPEN_HOUR = 12;
-const CLOSE_HOUR = 20;
+const CLOSE_HOUR = 17;
 
 // Pausa puntual: no hay venta hasta esta fecha (YYYY-MM-DD, hora de Santiago).
 // Debe coincidir con REOPEN_DATE en src/App.jsx.
@@ -97,7 +97,7 @@ Deno.serve(async (request) => {
       return response({
         error: isOnBreak()
           ? "Este fin de semana no hay venta. Volvemos el sábado 22 de agosto."
-          : "Estamos cerrados. Solo recibimos pedidos sábado y domingo de 12:00 a 20:00 hrs.",
+          : "Estamos cerrados. Solo recibimos pedidos sábado y domingo de 12:00 a 17:00 hrs.",
       }, 400);
     }
 
