@@ -22,6 +22,17 @@ function formatDateTime(date) {
   return new Date(date).toLocaleString("es-CL", { dateStyle: "short", timeStyle: "short" });
 }
 
+// El "agotado" se guarda como la fecha en que se marcó, en hora de Santiago:
+// solo vale para hoy, así la tienda se reactiva sola en el próximo servicio.
+function santiagoToday() {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Santiago",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+}
+
 function startOfDay(date) {
   const start = new Date(date);
   start.setHours(0, 0, 0, 0);
@@ -98,6 +109,8 @@ function Admin() {
   const [error, setError] = useState("");
   const [filter, setFilter] = useState("todos");
   const [unseen, setUnseen] = useState(0);
+  const [soldOut, setSoldOut] = useState(false);
+  const [savingSoldOut, setSavingSoldOut] = useState(false);
   const knownOrderIds = useRef(null);
   const playAlert = useAlertSound();
 
@@ -127,7 +140,31 @@ function Admin() {
     if (!silent) setLoading(false);
   }
 
-  useEffect(() => { if (session) loadOrders(); }, [session]);
+  async function loadSoldOut() {
+    const { data } = await supabase.from("store_settings").select("sold_out_on").maybeSingle();
+    setSoldOut(data?.sold_out_on === santiagoToday());
+  }
+
+  async function toggleSoldOut() {
+    const next = soldOut ? null : santiagoToday();
+    const aviso = next
+      ? "¿Marcar la tienda como AGOTADA? Dejará de recibir pedidos nuevos de inmediato."
+      : "¿Reactivar las ventas? La tienda volverá a recibir pedidos.";
+    if (!window.confirm(aviso)) return;
+
+    setSavingSoldOut(true);
+    const { error: requestError } = await supabase
+      .from("store_settings")
+      .update({ sold_out_on: next, updated_at: new Date().toISOString() })
+      .eq("id", true);
+    setSavingSoldOut(false);
+
+    if (requestError) { setError("No pudimos cambiar la disponibilidad. Inténtalo otra vez."); return; }
+    setError("");
+    setSoldOut(Boolean(next));
+  }
+
+  useEffect(() => { if (session) { loadOrders(); loadSoldOut(); } }, [session]);
 
   useEffect(() => {
     if (!session) return;
@@ -160,8 +197,9 @@ function Admin() {
 
   return <main className="admin-shell">
     {unseen > 0 && <button className="new-order-alert" onClick={() => setUnseen(0)}>🔔 {unseen === 1 ? "1 pedido nuevo" : `${unseen} pedidos nuevos`} · toca para silenciar</button>}
+    {soldOut && <p className="sold-out-notice">🛑 La tienda está marcada como <strong>agotada</strong> y no recibe pedidos. Se reactiva sola en el próximo servicio.</p>}
     <header className="admin-header"><a className="brand" href="/"><strong>bapbap</strong></a><div><span className="admin-clock">{formatTime(now)}</span><span className="admin-email">{session.user.email}</span><button className="link-button" onClick={() => supabase.auth.signOut()}>Cerrar sesión</button></div></header>
-    <section className="admin-intro"><div><p className="eyebrow">ADMINISTRACIÓN</p><h1>Pedidos</h1><p>Revisa, confirma y prepara cada pedido desde un solo lugar.</p></div><div className="admin-actions"><button className="refresh-button" onClick={playAlert}>🔔 Probar sonido</button><button className="refresh-button" onClick={() => loadOrders()}>↻ Actualizar</button></div></section>
+    <section className="admin-intro"><div><p className="eyebrow">ADMINISTRACIÓN</p><h1>Pedidos</h1><p>Revisa, confirma y prepara cada pedido desde un solo lugar.</p></div><div className="admin-actions"><button className={soldOut ? "sold-out-button active" : "sold-out-button"} onClick={toggleSoldOut} disabled={savingSoldOut}>{savingSoldOut ? "Guardando…" : soldOut ? "✅ Reactivar ventas" : "🛑 Marcar agotado"}</button><button className="refresh-button" onClick={playAlert}>🔔 Probar sonido</button><button className="refresh-button" onClick={() => loadOrders()}>↻ Actualizar</button></div></section>
     <section className="admin-stats"><div><span>Ventas hoy</span><strong>{pesos.format(salesToday)}</strong></div><div><span>Ventas esta semana</span><strong>{pesos.format(salesWeek)}</strong></div><div><span>Total</span><strong>{orders.length}</strong></div><div><span>Nuevos</span><strong>{newCount}</strong></div><div><span>En preparación</span><strong>{orders.filter((order) => order.status === "preparando").length}</strong></div></section>
     <div className="filters">{["todos", "nuevo", "confirmado", "preparando", "enviado", "entregado"].map((item) => <button className={filter === item ? "active" : ""} onClick={() => setFilter(item)} key={item}>{item === "todos" ? "Todos" : statusLabels[item]}</button>)}</div>
     {error && <p className="admin-error">{error}</p>}

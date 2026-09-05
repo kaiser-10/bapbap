@@ -73,16 +73,44 @@ function isStoreOpen(date = new Date()) {
   return OPEN_DAYS.includes(weekday) && hour >= OPEN_HOUR && hour < CLOSE_HOUR;
 }
 
-function readStoreStatus() {
-  return { open: isStoreOpen(), onBreak: isOnBreak() };
+function readClock() {
+  return { withinHours: isStoreOpen(), onBreak: isOnBreak() };
+}
+
+// El "agotado" lo controla el panel de admin y vive en la base de datos, porque
+// tiene que poder cambiar sin volver a desplegar. Si la consulta falla, seguimos
+// vendiendo: un problema de red nunca debe dejar la tienda cerrada por su cuenta.
+async function readSoldOut() {
+  if (!supabase) return false;
+  try {
+    const { data, error } = await supabase
+      .from("store_settings")
+      .select("sold_out_on")
+      .maybeSingle();
+    if (error) return false;
+    return data?.sold_out_on === getSantiagoDate(new Date());
+  } catch {
+    return false;
+  }
 }
 
 function useStoreStatus() {
-  const [status, setStatus] = useState(readStoreStatus);
+  const [status, setStatus] = useState(() => ({ ...readClock(), soldOut: false }));
+
   useEffect(() => {
-    const id = setInterval(() => setStatus(readStoreStatus()), 30000);
-    return () => clearInterval(id);
+    let active = true;
+    async function refresh() {
+      const soldOut = await readSoldOut();
+      if (active) setStatus({ ...readClock(), soldOut });
+    }
+    refresh();
+    const id = setInterval(refresh, 30000);
+    return () => {
+      active = false;
+      clearInterval(id);
+    };
   }, []);
+
   return status;
 }
 
@@ -97,7 +125,8 @@ function formatPrice(price) {
 }
 
 function App() {
-  const { open: storeOpen, onBreak } = useStoreStatus();
+  const { withinHours, onBreak, soldOut } = useStoreStatus();
+  const storeOpen = withinHours && !soldOut;
   const [cart, setCart] = useState([]);
   const [cartOpen, setCartOpen] = useState(false);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
@@ -161,9 +190,11 @@ function App() {
   async function checkout(event) {
     event.preventDefault();
     if (!storeOpen) {
-      alert(onBreak
-        ? `Este fin de semana no hay venta. Volvemos el ${REOPEN_LABEL}.`
-        : "Estamos cerrados. Solo recibimos pedidos sábado y domingo de 12:00 a 20:00 hrs.");
+      alert(soldOut
+        ? "Se nos acabó el stock por hoy. ¡Te esperamos en el próximo servicio!"
+        : onBreak
+          ? `Este fin de semana no hay venta. Volvemos el ${REOPEN_LABEL}.`
+          : "Estamos cerrados. Solo recibimos pedidos sábado y domingo de 12:00 a 20:00 hrs.");
       return;
     }
     if (!supabase) {
@@ -217,12 +248,12 @@ function App() {
           </motion.div>
         </section>
 
-        <section className="promise"><span>{onBreak ? `ESTE FIN DE SEMANA NO HAY VENTA · VOLVEMOS EL ${REOPEN_LABEL.toUpperCase()}` : `${storeOpen ? "ABIERTO AHORA" : "CERRADO"} · SÁB Y DOM 12:00-20:00 HRS`}</span><b>✦</b><span>HECHO AL MOMENTO</span><b>✦</b><span>NABO INCLUIDO</span><b>✦</b><span>PAGO ONLINE SEGURO</span></section>
+        <section className="promise"><span>{soldOut ? "AGOTADO POR HOY · VUELVE EN EL PRÓXIMO SERVICIO" : onBreak ? `ESTE FIN DE SEMANA NO HAY VENTA · VOLVEMOS EL ${REOPEN_LABEL.toUpperCase()}` : `${storeOpen ? "ABIERTO AHORA" : "CERRADO"} · SÁB Y DOM 12:00-20:00 HRS`}</span><b>✦</b><span>HECHO AL MOMENTO</span><b>✦</b><span>NABO INCLUIDO</span><b>✦</b><span>PAGO ONLINE SEGURO</span></section>
 
         <section className="menu-section" id="menu">
           <div className="section-title reveal"><p className="eyebrow">MENÚ</p><h2>Tu antojo comienza aquí.</h2><p>Elige una porción, personalízala y agrégala al carrito.</p></div>
           <div className="product-grid">
-            {products.map((product) => <ProductCard key={product.id} product={product} onAdd={addProduct} storeOpen={storeOpen} onBreak={onBreak} />)}
+            {products.map((product) => <ProductCard key={product.id} product={product} onAdd={addProduct} storeOpen={storeOpen} onBreak={onBreak} soldOut={soldOut} />)}
           </div>
         </section>
 
@@ -238,13 +269,13 @@ function App() {
 
       <AnimatePresence>
         {cartOpen && <Cart key="cart" cart={cart} total={cartTotal} onClose={() => setCartOpen(false)} onQuantity={changeQuantity} onCheckout={() => { setCartOpen(false); setCheckoutOpen(true); }} />}
-        {checkoutOpen && <Checkout key="checkout" subtotal={cartTotal} deliveryFee={deliveryFee} total={orderTotal} form={form} setForm={setForm} isSubmitting={isSubmitting} storeOpen={storeOpen} onBreak={onBreak} onClose={() => setCheckoutOpen(false)} onSubmit={checkout} />}
+        {checkoutOpen && <Checkout key="checkout" subtotal={cartTotal} deliveryFee={deliveryFee} total={orderTotal} form={form} setForm={setForm} isSubmitting={isSubmitting} storeOpen={storeOpen} onBreak={onBreak} soldOut={soldOut} onClose={() => setCheckoutOpen(false)} onSubmit={checkout} />}
       </AnimatePresence>
     </MotionConfig>
   );
 }
 
-function ProductCard({ product, onAdd, storeOpen, onBreak }) {
+function ProductCard({ product, onAdd, storeOpen, onBreak, soldOut }) {
   const [extraIds, setExtraIds] = useState([]);
   const selectedExtras = extras.filter((extra) => extraIds.includes(extra.id));
   const total = product.price + selectedExtras.reduce((sum, extra) => sum + extra.price, 0);
@@ -255,7 +286,7 @@ function ProductCard({ product, onAdd, storeOpen, onBreak }) {
     <div className="food-art"><img src={product.photo} alt={product.name} /><p>{product.tag}</p></div>
     <div className="product-content"><div className="product-top"><h3>{product.name}</h3><strong>{formatPrice(product.price)}</strong></div><p>{product.description}</p>
       <fieldset><legend>Agrega extras</legend>{extras.map((extra) => <label className="extra" key={extra.id}><input type="checkbox" checked={extraIds.includes(extra.id)} onChange={() => toggleExtra(extra.id)} /><span>{extra.name}</span><b>+ {formatPrice(extra.price)}</b></label>)}</fieldset>
-      <motion.button className="add-button" onClick={() => onAdd(product, selectedExtras)} disabled={!storeOpen} whileTap={storeOpen ? { scale: 0.97 } : undefined}>{storeOpen ? <>Agregar · {formatPrice(total)} <span>+</span></> : onBreak ? `Volvemos el ${REOPEN_LABEL}` : "Cerrado por ahora"}</motion.button>
+      <motion.button className="add-button" onClick={() => onAdd(product, selectedExtras)} disabled={!storeOpen} whileTap={storeOpen ? { scale: 0.97 } : undefined}>{storeOpen ? <>Agregar · {formatPrice(total)} <span>+</span></> : soldOut ? "Agotado por hoy" : onBreak ? `Volvemos el ${REOPEN_LABEL}` : "Cerrado por ahora"}</motion.button>
     </div>
   </motion.article>;
 }
@@ -269,12 +300,12 @@ function Cart({ cart, total, onClose, onQuantity, onCheckout }) {
   </motion.div>;
 }
 
-function Checkout({ subtotal, deliveryFee, total, form, setForm, isSubmitting, storeOpen, onBreak, onClose, onSubmit }) {
+function Checkout({ subtotal, deliveryFee, total, form, setForm, isSubmitting, storeOpen, onBreak, soldOut, onClose, onSubmit }) {
   function update(event) { setForm({ ...form, [event.target.name]: event.target.value }); }
   return <motion.div className="overlay" role="presentation" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.2 }}>
     <motion.section className="checkout-modal" role="dialog" aria-modal="true" aria-label="Finalizar pedido" initial={{ x: "100%" }} animate={{ x: 0 }} exit={{ x: "100%" }} transition={drawerTransition}>
       <div className="drawer-header"><h2>Finaliza tu pedido</h2><button onClick={onClose} aria-label="Cerrar">×</button></div>
-      <form onSubmit={onSubmit}><label>Nombre<input required maxLength={100} name="name" value={form.name} onChange={update} placeholder="Tu nombre" /></label><label>Teléfono<input required maxLength={30} type="tel" name="phone" value={form.phone} onChange={update} placeholder="+56 9 ..." /></label><label>Comuna<select name="comuna" value={form.comuna} onChange={update}>{COMUNAS.map((comuna) => <option key={comuna}>{comuna}</option>)}</select><small>Solo hacemos despacho a Puente Alto, San Bernardo, El Bosque y La Pintana.</small></label><label>Dirección<input required maxLength={200} name="address" value={form.address} onChange={update} placeholder="Calle, número y depto/casa" /></label><div className="payment-box">{storeOpen ? <><span>Método de pago</span><strong>Pago online seguro con Mercado Pago</strong><small>Te redirigiremos para completar el pago.</small></> : onBreak ? <><span>Este fin de semana no hay venta</span><strong>Volvemos el {REOPEN_LABEL}</strong><small>Disculpa las molestias. Te esperamos ese día de 12:00 a 20:00 hrs.</small></> : <><span>Estamos cerrados</span><strong>Solo recibimos pedidos sábado y domingo</strong><small>De 12:00 a 20:00 hrs. Vuelve a intentarlo en ese horario.</small></>}</div><div className="checkout-subtotal"><span>Subtotal</span><span>{formatPrice(subtotal)}</span></div><div className="checkout-subtotal"><span>Despacho</span><span>{formatPrice(deliveryFee)}</span></div><div className="checkout-total"><span>Total del pedido</span><strong>{formatPrice(total)}</strong></div><motion.button className="primary-button checkout" type="submit" disabled={isSubmitting || !storeOpen} whileTap={!isSubmitting && storeOpen ? { scale: 0.97 } : undefined}>{isSubmitting ? "Abriendo pago..." : "Ir a pagar"} <span>→</span></motion.button><p className="secure-note">No almacenamos datos de tu tarjeta.</p></form>
+      <form onSubmit={onSubmit}><label>Nombre<input required maxLength={100} name="name" value={form.name} onChange={update} placeholder="Tu nombre" /></label><label>Teléfono<input required maxLength={30} type="tel" name="phone" value={form.phone} onChange={update} placeholder="+56 9 ..." /></label><label>Comuna<select name="comuna" value={form.comuna} onChange={update}>{COMUNAS.map((comuna) => <option key={comuna}>{comuna}</option>)}</select><small>Solo hacemos despacho a Puente Alto, San Bernardo, El Bosque y La Pintana.</small></label><label>Dirección<input required maxLength={200} name="address" value={form.address} onChange={update} placeholder="Calle, número y depto/casa" /></label><div className="payment-box">{storeOpen ? <><span>Método de pago</span><strong>Pago online seguro con Mercado Pago</strong><small>Te redirigiremos para completar el pago.</small></> : soldOut ? <><span>Agotado por hoy</span><strong>Se nos acabó el stock</strong><small>Gracias por preferirnos. Te esperamos en el próximo servicio.</small></> : onBreak ? <><span>Este fin de semana no hay venta</span><strong>Volvemos el {REOPEN_LABEL}</strong><small>Disculpa las molestias. Te esperamos ese día de 12:00 a 20:00 hrs.</small></> : <><span>Estamos cerrados</span><strong>Solo recibimos pedidos sábado y domingo</strong><small>De 12:00 a 20:00 hrs. Vuelve a intentarlo en ese horario.</small></>}</div><div className="checkout-subtotal"><span>Subtotal</span><span>{formatPrice(subtotal)}</span></div><div className="checkout-subtotal"><span>Despacho</span><span>{formatPrice(deliveryFee)}</span></div><div className="checkout-total"><span>Total del pedido</span><strong>{formatPrice(total)}</strong></div><motion.button className="primary-button checkout" type="submit" disabled={isSubmitting || !storeOpen} whileTap={!isSubmitting && storeOpen ? { scale: 0.97 } : undefined}>{isSubmitting ? "Abriendo pago..." : "Ir a pagar"} <span>→</span></motion.button><p className="secure-note">No almacenamos datos de tu tarjeta.</p></form>
     </motion.section>
   </motion.div>;
 }

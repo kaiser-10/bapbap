@@ -46,6 +46,27 @@ function isStoreOpen(date = new Date()) {
   return OPEN_DAYS.includes(weekday ?? "") && hour >= OPEN_HOUR && hour < CLOSE_HOUR;
 }
 
+// El panel de admin marca "agotado" guardando la fecha del día. Si la consulta
+// falla, seguimos vendiendo: un error de lectura no debe cortar las ventas.
+async function isSoldOut(database: ReturnType<typeof createClient>) {
+  try {
+    const { data, error } = await database
+      .from("store_settings")
+      .select("sold_out_on")
+      .maybeSingle();
+    if (error) return false;
+    const today = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "America/Santiago",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(new Date());
+    return data?.sold_out_on === today;
+  } catch {
+    return false;
+  }
+}
+
 function response(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
@@ -105,6 +126,12 @@ Deno.serve(async (request) => {
 
     const total = validatedItems.reduce((sum, item) => sum + item.unit_price * item.quantity, 0) + DELIVERY_FEE;
     const database = createClient(supabaseUrl, serviceKey, { auth: { autoRefreshToken: false, persistSession: false } });
+
+    // Se comprueba antes de insertar, para no dejar pedidos huérfanos si está agotado.
+    if (await isSoldOut(database)) {
+      return response({ error: "Se nos acabó el stock por hoy. ¡Te esperamos en el próximo servicio!" }, 400);
+    }
+
     const { data: order, error: orderError } = await database.from("orders").insert({
       customer_name: customer.name.trim(),
       customer_phone: customer.phone.trim(),
