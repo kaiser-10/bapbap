@@ -43,7 +43,7 @@ const products = [
     name: "Porción de arroz",
     description: "Arroz blanco recién preparado.",
     price: 2000,
-    photo: null,
+    photo: "/photos/arroz.jpg",
     hasSauce: false,
   },
 ];
