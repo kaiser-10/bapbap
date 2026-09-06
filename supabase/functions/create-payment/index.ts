@@ -37,6 +37,8 @@ function isOnBreak(date = new Date()) {
 }
 
 function isStoreOpen(date = new Date()) {
+  // TEMP: prueba real antes de partir, revertir después
+  if (true) return true;
   if (isOnBreak(date)) return false;
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone: "America/Santiago",
