@@ -12,6 +12,8 @@ const products = [
     description: "Pollo coreano crocante con una pequeña porción de nabo.",
     price: 11990,
     photo: "/photos/pollo-individual.jpg",
+    hasSauce: true,
+    extraIds: ["rice"],
   },
   {
     id: "porcion",
@@ -19,12 +21,31 @@ const products = [
     description: "El doble de pollo coreano crocante, con una pequeña porción de nabo.",
     price: 19990,
     photo: "/photos/pollo-compartir.jpg",
+    hasSauce: true,
+    extraIds: ["rice"],
+  },
+  {
+    id: "bibimbap",
+    name: "Bibimbap",
+    description: "Arroz con carne salteada, vegetales frescos, huevo frito y sésamo.",
+    price: 8990,
+    photo: "/photos/bibimbap.jpg",
+    hasSauce: false,
+    extraIds: [],
+  },
+  {
+    id: "coca-cola",
+    name: "Coca-Cola en lata",
+    description: "350 ml, bien fría.",
+    price: 1500,
+    photo: "/photos/coca-cola.jpg",
+    hasSauce: false,
+    extraIds: [],
   },
 ];
 
 const extras = [
   { id: "rice", name: "Agregar porción de arroz", price: 2000 },
-  { id: "coke", name: "Coca-Cola en lata", price: 1500 },
 ];
 
 // Preferencia de servido, sin costo. El orden importa: el primero es el que viene marcado.
@@ -163,7 +184,7 @@ function App() {
   function addProduct(product, selectedExtras, sauce) {
     const extrasTotal = selectedExtras.reduce((sum, extra) => sum + extra.price, 0);
     // La salsa entra en la clave: dos porciones iguales con distinta salsa son líneas separadas.
-    const key = `${product.id}-${sauce}-${selectedExtras.map((extra) => extra.id).join("-")}`;
+    const key = `${product.id}-${sauce ?? "none"}-${selectedExtras.map((extra) => extra.id).join("-")}`;
     const item = {
       key,
       product: product.name,
@@ -283,8 +304,9 @@ function App() {
 
 function ProductCard({ product, onAdd, storeOpen, onBreak, soldOut }) {
   const [extraIds, setExtraIds] = useState([]);
-  const [sauce, setSauce] = useState(DEFAULT_SAUCE);
-  const selectedExtras = extras.filter((extra) => extraIds.includes(extra.id));
+  const [sauce, setSauce] = useState(product.hasSauce ? DEFAULT_SAUCE : null);
+  const availableExtras = extras.filter((extra) => product.extraIds.includes(extra.id));
+  const selectedExtras = availableExtras.filter((extra) => extraIds.includes(extra.id));
   const total = product.price + selectedExtras.reduce((sum, extra) => sum + extra.price, 0);
 
   function toggleExtra(id) { setExtraIds((selected) => selected.includes(id) ? selected.filter((item) => item !== id) : [...selected, id]); }
@@ -292,8 +314,8 @@ function ProductCard({ product, onAdd, storeOpen, onBreak, soldOut }) {
   return <motion.article className="product-card reveal" whileHover={{ y: -6, boxShadow: "0 18px 34px rgba(33,21,20,.14)" }}>
     <div className="food-art"><img src={product.photo} alt={product.name} />{product.tag ? <p>{product.tag}</p> : null}</div>
     <div className="product-content"><div className="product-top"><h3>{product.name}</h3><strong>{formatPrice(product.price)}</strong></div><p>{product.description}</p>
-      <fieldset><legend>¿Cómo quieres el pollo?</legend>{SAUCE_CHOICES.map((choice) => <label className="extra" key={choice}><input type="radio" name={`sauce-${product.id}`} value={choice} checked={sauce === choice} onChange={() => setSauce(choice)} /><span>{choice}</span></label>)}</fieldset>
-      <fieldset><legend>Agrega extras</legend>{extras.map((extra) => <label className="extra" key={extra.id}><input type="checkbox" checked={extraIds.includes(extra.id)} onChange={() => toggleExtra(extra.id)} /><span>{extra.name}</span><b>+ {formatPrice(extra.price)}</b></label>)}</fieldset>
+      {product.hasSauce ? <fieldset><legend>¿Cómo quieres el pollo?</legend>{SAUCE_CHOICES.map((choice) => <label className="extra" key={choice}><input type="radio" name={`sauce-${product.id}`} value={choice} checked={sauce === choice} onChange={() => setSauce(choice)} /><span>{choice}</span></label>)}</fieldset> : null}
+      {availableExtras.length > 0 ? <fieldset><legend>Agrega extras</legend>{availableExtras.map((extra) => <label className="extra" key={extra.id}><input type="checkbox" checked={extraIds.includes(extra.id)} onChange={() => toggleExtra(extra.id)} /><span>{extra.name}</span><b>+ {formatPrice(extra.price)}</b></label>)}</fieldset> : null}
       <motion.button className="add-button" onClick={() => onAdd(product, selectedExtras, sauce)} disabled={!storeOpen} whileTap={storeOpen ? { scale: 0.97 } : undefined}>{storeOpen ? <>Agregar · {formatPrice(total)} <span>+</span></> : soldOut ? "Agotado por hoy" : onBreak ? `Volvemos el ${REOPEN_LABEL}` : "Cerrado por ahora"}</motion.button>
     </div>
   </motion.article>;
@@ -303,7 +325,7 @@ function Cart({ cart, total, onClose, onQuantity, onCheckout }) {
   return <motion.div className="overlay" role="presentation" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.2 }}>
     <motion.aside className="cart" role="dialog" aria-modal="true" aria-label="Tu carrito" initial={{ x: "100%" }} animate={{ x: 0 }} exit={{ x: "100%" }} transition={drawerTransition}>
       <div className="drawer-header"><h2>Tu pedido</h2><button onClick={onClose} aria-label="Cerrar carrito">×</button></div>
-      {cart.length === 0 ? <div className="empty"><p>Aún no agregas nada.</p><button onClick={() => { onClose(); document.getElementById("menu")?.scrollIntoView(); }}>Ver el menú</button></div> : <><div className="cart-items"><AnimatePresence initial={false}>{cart.map((item) => <motion.div className="cart-item" key={item.key} layout initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, x: 24 }} transition={{ duration: 0.25 }}><div><strong>{item.product}</strong><p>{[item.sauce, ...item.extras.map((extra) => extra.name)].join(" · ")}</p><b>{formatPrice(item.unitPrice * item.quantity)}</b></div><div className="quantity"><motion.button whileTap={{ scale: 0.85 }} onClick={() => onQuantity(item.key, -1)}>−</motion.button><span>{item.quantity}</span><motion.button whileTap={{ scale: 0.85 }} onClick={() => onQuantity(item.key, 1)}>+</motion.button></div></motion.div>)}</AnimatePresence></div><div className="cart-total"><span>Total</span><strong>{formatPrice(total)}</strong></div><motion.button className="primary-button checkout" whileTap={{ scale: 0.97 }} onClick={onCheckout}>Continuar al pago <span>→</span></motion.button></>}
+      {cart.length === 0 ? <div className="empty"><p>Aún no agregas nada.</p><button onClick={() => { onClose(); document.getElementById("menu")?.scrollIntoView(); }}>Ver el menú</button></div> : <><div className="cart-items"><AnimatePresence initial={false}>{cart.map((item) => <motion.div className="cart-item" key={item.key} layout initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, x: 24 }} transition={{ duration: 0.25 }}><div><strong>{item.product}</strong><p>{[item.sauce, ...item.extras.map((extra) => extra.name)].filter(Boolean).join(" · ")}</p><b>{formatPrice(item.unitPrice * item.quantity)}</b></div><div className="quantity"><motion.button whileTap={{ scale: 0.85 }} onClick={() => onQuantity(item.key, -1)}>−</motion.button><span>{item.quantity}</span><motion.button whileTap={{ scale: 0.85 }} onClick={() => onQuantity(item.key, 1)}>+</motion.button></div></motion.div>)}</AnimatePresence></div><div className="cart-total"><span>Total</span><strong>{formatPrice(total)}</strong></div><motion.button className="primary-button checkout" whileTap={{ scale: 0.97 }} onClick={onCheckout}>Continuar al pago <span>→</span></motion.button></>}
     </motion.aside>
   </motion.div>;
 }

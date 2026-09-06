@@ -5,13 +5,16 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const portions = new Map([
-  ["Media porción", 11990],
-  ["Porción (2 a 3 personas)", 19990],
+// hasSauce debe coincidir con el campo del mismo nombre en src/App.jsx: solo el
+// pollo pregunta la salsa, los demás productos no.
+const PRODUCTS = new Map([
+  ["Media porción", { price: 11990, hasSauce: true }],
+  ["Porción (2 a 3 personas)", { price: 19990, hasSauce: true }],
+  ["Bibimbap", { price: 8990, hasSauce: false }],
+  ["Coca-Cola en lata", { price: 1500, hasSauce: false }],
 ]);
 const extras = new Map([
   ["Agregar porción de arroz", 2000],
-  ["Coca-Cola en lata", 1500],
 ]);
 // Preferencia de servido, sin costo. Debe coincidir con SAUCE_CHOICES en src/App.jsx.
 const SAUCE_CHOICES = new Set(["Con salsa", "Sin salsa", "Salsa aparte"]);
@@ -115,15 +118,17 @@ Deno.serve(async (request) => {
       return response({ error: "Los datos del pedido no son válidos." }, 400);
     }
 
-    const validatedItems = submittedItems.map((item: { product?: string; sauce?: string; extras?: string[]; quantity?: number }) => {
-      const portionPrice = portions.get(item.product ?? "");
+    const validatedItems = submittedItems.map((item: { product?: string; sauce?: string | null; extras?: string[]; quantity?: number }) => {
+      const productInfo = PRODUCTS.get(item.product ?? "");
       const selectedExtras = Array.isArray(item.extras) ? item.extras : [];
       const quantity = Number(item.quantity);
-      if (!portionPrice || !SAUCE_CHOICES.has(item.sauce ?? "") || !Number.isInteger(quantity) || quantity < 1 || quantity > 10 || selectedExtras.some((extra) => !extras.has(extra))) {
+      const sauceOk = productInfo ? (productInfo.hasSauce ? SAUCE_CHOICES.has(item.sauce ?? "") : true) : false;
+      if (!productInfo || !sauceOk || !Number.isInteger(quantity) || quantity < 1 || quantity > 10 || selectedExtras.some((extra) => !extras.has(extra))) {
         throw new Error("Producto no válido.");
       }
       const extrasTotal = selectedExtras.reduce((sum, extra) => sum + (extras.get(extra) ?? 0), 0);
-      return { product: item.product, sauce: item.sauce, extras: selectedExtras, quantity, unit_price: portionPrice + extrasTotal };
+      const sauce = productInfo.hasSauce ? item.sauce : null;
+      return { product: item.product, sauce, extras: selectedExtras, quantity, unit_price: productInfo.price + extrasTotal };
     });
 
     const total = validatedItems.reduce((sum, item) => sum + item.unit_price * item.quantity, 0) + DELIVERY_FEE;
@@ -153,7 +158,7 @@ Deno.serve(async (request) => {
       body: JSON.stringify({
         items: [
           ...validatedItems.map((item) => ({
-            title: `${item.product} · ${item.sauce}${item.extras.length ? ` · ${item.extras.join(", ")}` : ""}`,
+            title: [item.product, item.sauce, item.extras.length ? item.extras.join(", ") : null].filter(Boolean).join(" · "),
             quantity: item.quantity,
             unit_price: item.unit_price,
             currency_id: "CLP",
