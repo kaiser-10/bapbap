@@ -21,7 +21,8 @@ const COMUNA_GROUPS = [
   { fee: 4490, comunas: ["La Florida", "La Granja", "San Ramón", "La Cisterna"] },
 ];
 
-const TICKER = ["RESERVA CUALQUIER DÍA", "VIE 17—20", "SÁB 12—20", "DOM 12—17", "HECHO AL MOMENTO", "NABO INCLUIDO", "DESPACHO DESDE $2.990"];
+// Sin horarios: esos viven en la sección de reserva, no acá.
+const TICKER = ["RESERVA CUALQUIER DÍA", "HECHO AL MOMENTO", "NABO INCLUIDO", "DESPACHO DESDE $2.990"];
 
 const pesos = new Intl.NumberFormat("es-CL", { style: "currency", currency: "CLP", maximumFractionDigits: 0 });
 const formatPrice = (price) => pesos.format(price);
@@ -54,7 +55,7 @@ function Nuevo() {
     </header>
 
     <section className="hero">
-      <div className="hero-photo"><img src="/photos/pollo-hero.jpg" alt="Pollo coreano crocante bañado en salsa" /></div>
+      <div className="hero-photo"><img src="/photos/pollo-hero-nuevo.jpg" alt="Bandeja de pollo coreano crocante bañado en salsa con sésamo" /></div>
       <div className="hero-copy">
         <p className="hero-eyebrow">POLLO COREANO EN PUENTE ALTO</p>
         <h1>Crujiente por fuera.<br /><em>Inolvidable</em> por dentro.</h1>
@@ -63,10 +64,11 @@ function Nuevo() {
       </div>
     </section>
 
-    {/* Dos copias idénticas: la pista se corre un ancho exacto y el loop no salta. */}
+    {/* Seis copias idénticas: la pista se corre justo la mitad (tres copias), así
+        el loop cierra sin salto y las tres restantes cubren cualquier pantalla. */}
     <div className="ticker">
       <div className="ticker-track">
-        {[0, 1].map((copy) => <div className="ticker-set" key={copy} aria-hidden={copy === 1}>
+        {[0, 1, 2, 3, 4, 5].map((copy) => <div className="ticker-set" key={copy} aria-hidden={copy > 0}>
           {TICKER.map((text) => <span key={text}>{text}<b aria-hidden="true">✦</b></span>)}
         </div>)}
       </div>
