@@ -63,9 +63,12 @@ function Nuevo() {
       </div>
     </section>
 
+    {/* Dos copias idénticas: la pista se corre un ancho exacto y el loop no salta. */}
     <div className="ticker">
       <div className="ticker-track">
-        {[0, 1].map((copy) => TICKER.map((text) => <span key={`${copy}-${text}`}>{text} <b>✦</b></span>))}
+        {[0, 1].map((copy) => <div className="ticker-set" key={copy} aria-hidden={copy === 1}>
+          {TICKER.map((text) => <span key={text}>{text}<b aria-hidden="true">✦</b></span>)}
+        </div>)}
       </div>
     </div>
 
