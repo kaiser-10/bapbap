@@ -51,7 +51,6 @@ function Card({ product, wide }) {
 
 function Nuevo() {
   return <>
-    <div className="grain" aria-hidden="true" />
     <a className="preview-flag" href="/">Vista previa · volver al sitio real</a>
 
     <header className="site-header shell">
