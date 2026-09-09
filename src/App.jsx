@@ -316,7 +316,7 @@ function App() {
 
         <section className="steps" id="como-pedir">
           <div className="reveal"><p className="eyebrow">ASÍ DE SIMPLE</p><h2>Pedir es fácil.</h2></div>
-          <ol><li className="reveal"><span>01</span><strong>Arma tu pedido</strong><p>Suma bibimbap, arroz o bebida si quieres.</p></li><li className="reveal"><span>02</span><strong>Reserva tu bloque</strong><p>Elige cuándo lo quieres y tus datos de entrega.</p></li><li className="reveal"><span>03</span><strong>Paga online</strong><p>Con Mercado Pago, débito o crédito.</p></li></ol>
+          <ol><li className="reveal"><span>01</span><strong>Arma tu pedido</strong><p>Suma bibimbap, arroz o bebida si quieres.</p></li><li className="reveal"><span>02</span><strong>Elige el día</strong><p>Viernes, sábado o domingo, y tus datos de entrega.</p></li><li className="reveal"><span>03</span><strong>Paga online</strong><p>Con Mercado Pago, débito o crédito.</p></li></ol>
         </section>
       </main>
 
