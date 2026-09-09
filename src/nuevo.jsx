@@ -62,6 +62,7 @@ function Nuevo() {
     <section className="hero">
       <div className="hero-photo"><img src="/photos/pollo-hero-nuevo.jpg" alt="Bandeja de pollo coreano crocante bañado en salsa con sésamo" /></div>
       <div className="hero-copy">
+        <img className="hero-logo" src="/logo-featured.svg" alt="bapbap" />
         <p className="hero-eyebrow">POLLO COREANO EN PUENTE ALTO</p>
         <h1>Crujiente por fuera.<br /><em>Inolvidable</em> por dentro.</h1>
         <p className="hero-sub">Pollo frito coreano bañado en salsa, servido con una pequeña porción de nabo. Reserva cualquier día y elige cuándo lo quieres.</p>

@@ -53,6 +53,9 @@ h1,h2,h3{font-family:"Jua",sans-serif;font-weight:400;line-height:.92;letter-spa
    sumado al max-width, dejaba al titular en una caja de ~550px partiéndose en
    una palabra por línea. */
 .hero-copy{position:relative;z-index:2;width:100%;max-width:1260px;margin:0 auto;padding:100px 22px 52px}
+/* Escala con el alto además del ancho: en pantallas bajas cede espacio para
+   que el titular y el botón sigan cabiendo. */
+.hero-logo{display:block;margin:0 auto 22px;width:clamp(150px,min(19vw,26vh),238px);height:auto}
 .hero-eyebrow{display:inline-flex;align-items:center;gap:10px;background:var(--red);color:var(--cream);
   font-size:.71rem;font-weight:700;letter-spacing:.16em;padding:9px 14px;margin:0 0 26px}
 /* El tamaño mira ancho Y alto: en pantallas de laptop (bajas) manda el alto,
@@ -144,7 +147,11 @@ h1,h2,h3{font-family:"Jua",sans-serif;font-weight:400;line-height:.92;letter-spa
   .site-header{height:86px}
   .site-header img{height:52px}
   .site-header nav{display:none}
-  .hero-copy{padding-top:120px;padding-bottom:52px}
+  /* En pantalla angosta el logo del hero compite con el del header y empuja el
+     botón al borde: se achica y se aprietan los márgenes. */
+  .hero-logo{width:124px;margin-bottom:16px}
+  .hero-eyebrow{margin-bottom:20px}
+  .hero-copy{padding-top:104px;padding-bottom:44px}
   .hero-sub{font-size:1rem}
   .menu-grid{grid-template-columns:1fr;gap:26px}
   .card:nth-child(even):not(.card-wide){margin-top:0}
