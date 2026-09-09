@@ -299,6 +299,13 @@ function App() {
 
         <section className="promise"><span>{canOrder ? "RESERVA TU PEDIDO · VIE 17-20 · SÁB 12-20 · DOM 12-17" : `SIN CUPOS POR AHORA · VOLVEMOS EL ${REOPEN_LABEL.toUpperCase()}`}</span><b>✦</b><span>HECHO AL MOMENTO</span><b>✦</b><span>NABO INCLUIDO</span><b>✦</b><span>PAGO SEGURO CON MERCADO PAGO</span></section>
 
+        <section className="coverage reveal" id="cobertura">
+          <h2>¿Llegamos a tu comuna?</h2>
+          <div className="coverage-tiers">
+            {COMUNA_GROUPS.map((group) => <div className="coverage-tier" key={group.fee}><strong>Despacho {formatPrice(group.fee)}</strong><p>{group.comunas.join(" · ")}</p></div>)}
+          </div>
+        </section>
+
         <section className="menu-section" id="menu">
           <div className="section-title reveal"><p className="eyebrow">MENÚ</p><h2>Tu antojo comienza aquí.</h2><p>Elige una porción, personalízala y agrégala al carrito.</p></div>
           <div className="product-grid">
