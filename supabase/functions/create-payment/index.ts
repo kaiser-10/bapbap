@@ -20,55 +20,72 @@ const DELIVERY_FEE = 2990;
 const RATE_LIMIT_WINDOW_MS = 60_000;
 const RATE_LIMIT_MAX = 8;
 const COMUNAS = new Set(["Puente Alto", "San Bernardo", "El Bosque", "La Pintana"]);
-const OPEN_DAYS = ["Sat", "Sun"];
-const OPEN_HOUR = 12;
-const CLOSE_HOUR = 17;
 
-// Pausa puntual: no hay venta hasta esta fecha (YYYY-MM-DD, hora de Santiago).
-// Debe coincidir con REOPEN_DATE en src/App.jsx.
+// Bloques de entrega de la semana. Debe coincidir con BLOCKS en src/App.jsx.
+const BLOCKS = [
+  { weekday: "Fri", label: "Viernes", openHour: 17, closeHour: 20 },
+  { weekday: "Sat", label: "Sábado", openHour: 12, closeHour: 20 },
+  { weekday: "Sun", label: "Domingo", openHour: 12, closeHour: 17 },
+];
+const WEEKDAY_INDEX: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+
+// Pausa puntual: no se ofrece ningún bloque anterior a esta fecha (YYYY-MM-DD,
+// hora de Santiago). Debe coincidir con REOPEN_DATE en src/App.jsx.
 const REOPEN_DATE = "2026-08-22";
 
-function isOnBreak(date = new Date()) {
-  const today = new Intl.DateTimeFormat("en-CA", {
+function getSantiagoNow(date = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-US", {
     timeZone: "America/Santiago",
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
-  }).format(date);
-  return today < REOPEN_DATE;
-}
-
-function isStoreOpen(date = new Date()) {
-  if (isOnBreak(date)) return false;
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: "America/Santiago",
     weekday: "short",
     hour: "numeric",
     hour12: false,
   }).formatToParts(date);
-  const weekday = parts.find((part) => part.type === "weekday")?.value;
-  const hour = Number(parts.find((part) => part.type === "hour")?.value) % 24;
-  return OPEN_DAYS.includes(weekday ?? "") && hour >= OPEN_HOUR && hour < CLOSE_HOUR;
+  const get = (type: string) => parts.find((part) => part.type === type)?.value ?? "";
+  return {
+    date: `${get("year")}-${get("month")}-${get("day")}`,
+    weekday: get("weekday"),
+    hour: Number(get("hour")) % 24,
+  };
 }
 
-// El panel de admin marca "agotado" guardando la fecha del día. Si la consulta
-// falla, seguimos vendiendo: un error de lectura no debe cortar las ventas.
-async function isSoldOut(database: ReturnType<typeof createClient>) {
+function addDays(dateStr: string, days: number) {
+  const [year, month, day] = dateStr.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+function formatBlockDate(dateStr: string) {
+  const [year, month, day] = dateStr.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day, 12));
+  return new Intl.DateTimeFormat("es-CL", { day: "numeric", month: "short", timeZone: "UTC" }).format(date);
+}
+
+function nextOccurrence(block: { weekday: string; closeHour: number }, now: { date: string; weekday: string; hour: number }) {
+  const diff = (WEEKDAY_INDEX[block.weekday] - WEEKDAY_INDEX[now.weekday] + 7) % 7;
+  const alreadyClosed = diff === 0 && now.hour >= block.closeHour;
+  return addDays(now.date, alreadyClosed ? 7 : diff);
+}
+
+function getUpcomingBlocks(now = getSantiagoNow()) {
+  return BLOCKS.map((block) => ({ ...block, date: nextOccurrence(block, now) }))
+    .filter((block) => block.date >= REOPEN_DATE)
+    .sort((a, b) => a.date.localeCompare(b.date));
+}
+
+// El panel de admin marca "agotado" guardando la fecha del bloque sin stock.
+// Si la consulta falla, seguimos vendiendo: un error de lectura no debe cortar
+// las ventas.
+async function getSoldOutDate(database: ReturnType<typeof createClient>) {
   try {
-    const { data, error } = await database
-      .from("store_settings")
-      .select("sold_out_on")
-      .maybeSingle();
-    if (error) return false;
-    const today = new Intl.DateTimeFormat("en-CA", {
-      timeZone: "America/Santiago",
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-    }).format(new Date());
-    return data?.sold_out_on === today;
+    const { data, error } = await database.from("store_settings").select("sold_out_on").maybeSingle();
+    if (error) return null;
+    return (data?.sold_out_on as string | null) ?? null;
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -108,15 +125,17 @@ Deno.serve(async (request) => {
       return response({ error: "Demasiados intentos. Espera un momento e inténtalo de nuevo." }, 429);
     }
 
-    if (!isStoreOpen()) {
-      return response({
-        error: isOnBreak()
-          ? "Este fin de semana no hay venta. Volvemos el sábado 22 de agosto."
-          : "Estamos cerrados. Solo recibimos pedidos sábado y domingo de 12:00 a 17:00 hrs.",
-      }, 400);
+    const body = await request.json();
+
+    let blocks = getUpcomingBlocks();
+    const soldOutDate = await getSoldOutDate(database);
+    if (soldOutDate) blocks = blocks.filter((block) => block.date !== soldOutDate);
+
+    const block = blocks.find((item) => item.weekday === body.reservation?.weekday);
+    if (!block) {
+      return response({ error: "Elige un horario de entrega disponible." }, 400);
     }
 
-    const body = await request.json();
     const customer = body.customer ?? {};
     const submittedItems = Array.isArray(body.items) ? body.items : [];
     if (
@@ -141,11 +160,7 @@ Deno.serve(async (request) => {
     });
 
     const total = validatedItems.reduce((sum, item) => sum + item.unit_price * item.quantity, 0) + DELIVERY_FEE;
-
-    // Se comprueba antes de insertar, para no dejar pedidos huérfanos si está agotado.
-    if (await isSoldOut(database)) {
-      return response({ error: "Se nos acabó el stock por hoy. ¡Te esperamos en el próximo servicio!" }, 400);
-    }
+    const reservedLabel = `${block.label} ${formatBlockDate(block.date)} · ${block.openHour}:00-${block.closeHour}:00 hrs`;
 
     const { data: order, error: orderError } = await database.from("orders").insert({
       customer_name: customer.name.trim(),
@@ -153,6 +168,8 @@ Deno.serve(async (request) => {
       delivery_method: "Delivery",
       delivery_address: customer.address.trim(),
       comuna: customer.comuna,
+      reserved_date: block.date,
+      reserved_label: reservedLabel,
       items: validatedItems,
       total,
       payment_provider: "mercado_pago",
@@ -171,7 +188,7 @@ Deno.serve(async (request) => {
             unit_price: item.unit_price,
             currency_id: "CLP",
           })),
-          { title: "Despacho", quantity: 1, unit_price: DELIVERY_FEE, currency_id: "CLP" },
+          { title: `Despacho · ${reservedLabel}`, quantity: 1, unit_price: DELIVERY_FEE, currency_id: "CLP" },
         ],
         external_reference: order.id,
         back_urls: {

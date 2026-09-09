@@ -43,15 +43,47 @@ function whatsappLink(order) {
   return `https://wa.me/${number}?text=${encodeURIComponent(build(order.customer_name, order.order_number))}`;
 }
 
-// El "agotado" se guarda como la fecha en que se marcó, en hora de Santiago:
-// solo vale para hoy, así la tienda se reactiva sola en el próximo servicio.
-function santiagoToday() {
-  return new Intl.DateTimeFormat("en-CA", {
+// Bloques de entrega de la semana. Solo se necesita closeHour para saber si el
+// bloque de hoy ya pasó. Debe coincidir con BLOCKS en src/App.jsx.
+const BLOCKS = [
+  { weekday: "Fri", closeHour: 20 },
+  { weekday: "Sat", closeHour: 20 },
+  { weekday: "Sun", closeHour: 17 },
+];
+const WEEKDAY_INDEX = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+
+function getSantiagoNow() {
+  const parts = new Intl.DateTimeFormat("en-US", {
     timeZone: "America/Santiago",
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
-  }).format(new Date());
+    weekday: "short",
+    hour: "numeric",
+    hour12: false,
+  }).formatToParts(new Date());
+  const get = (type) => parts.find((part) => part.type === type)?.value;
+  return { date: `${get("year")}-${get("month")}-${get("day")}`, weekday: get("weekday"), hour: Number(get("hour")) % 24 };
+}
+
+function addDays(dateStr, days) {
+  const [year, month, day] = dateStr.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+// El "agotado" se guarda como la fecha del bloque de entrega más próximo (el
+// que se está por preparar), en hora de Santiago: así la tienda se reactiva
+// sola apenas pase ese bloque.
+function nextBlockDate() {
+  const now = getSantiagoNow();
+  const dates = BLOCKS.map((block) => {
+    const diff = (WEEKDAY_INDEX[block.weekday] - WEEKDAY_INDEX[now.weekday] + 7) % 7;
+    const alreadyClosed = diff === 0 && now.hour >= block.closeHour;
+    return addDays(now.date, alreadyClosed ? 7 : diff);
+  });
+  return dates.sort()[0];
 }
 
 function startOfDay(date) {
@@ -163,14 +195,14 @@ function Admin() {
 
   async function loadSoldOut() {
     const { data } = await supabase.from("store_settings").select("sold_out_on").maybeSingle();
-    setSoldOut(data?.sold_out_on === santiagoToday());
+    setSoldOut(data?.sold_out_on === nextBlockDate());
   }
 
   async function toggleSoldOut() {
-    const next = soldOut ? null : santiagoToday();
+    const next = soldOut ? null : nextBlockDate();
     const aviso = next
-      ? "¿Marcar la tienda como AGOTADA? Dejará de recibir pedidos nuevos de inmediato."
-      : "¿Reactivar las ventas? La tienda volverá a recibir pedidos.";
+      ? "¿Marcar el próximo bloque como AGOTADO? Dejará de aparecer como opción de reserva."
+      : "¿Reactivar ese bloque? Volverá a aparecer como opción de reserva.";
     if (!window.confirm(aviso)) return;
 
     setSavingSoldOut(true);
@@ -218,13 +250,13 @@ function Admin() {
 
   return <main className="admin-shell">
     {unseen > 0 && <button className="new-order-alert" onClick={() => setUnseen(0)}>🔔 {unseen === 1 ? "1 pedido nuevo" : `${unseen} pedidos nuevos`} · toca para silenciar</button>}
-    {soldOut && <p className="sold-out-notice">🛑 La tienda está marcada como <strong>agotada</strong> y no recibe pedidos. Se reactiva sola en el próximo servicio.</p>}
+    {soldOut && <p className="sold-out-notice">🛑 El próximo bloque de entrega está marcado como <strong>agotado</strong> y no aparece para reservar. Se reactiva solo apenas pase ese bloque.</p>}
     <header className="admin-header"><a className="brand" href="/"><strong>bapbap</strong></a><div><span className="admin-clock">{formatTime(now)}</span><span className="admin-email">{session.user.email}</span><button className="link-button" onClick={() => supabase.auth.signOut()}>Cerrar sesión</button></div></header>
     <section className="admin-intro"><div><p className="eyebrow">ADMINISTRACIÓN</p><h1>Pedidos</h1><p>Revisa, confirma y prepara cada pedido desde un solo lugar.</p></div><div className="admin-actions"><button className={soldOut ? "sold-out-button active" : "sold-out-button"} onClick={toggleSoldOut} disabled={savingSoldOut}>{savingSoldOut ? "Guardando…" : soldOut ? "✅ Reactivar ventas" : "🛑 Marcar agotado"}</button><button className="refresh-button" onClick={playAlert}>🔔 Probar sonido</button><button className="refresh-button" onClick={() => loadOrders()}>↻ Actualizar</button></div></section>
     <section className="admin-stats"><div><span>Ventas hoy</span><strong>{pesos.format(salesToday)}</strong></div><div><span>Ventas esta semana</span><strong>{pesos.format(salesWeek)}</strong></div><div><span>Total</span><strong>{orders.length}</strong></div><div><span>Nuevos</span><strong>{newCount}</strong></div><div><span>En preparación</span><strong>{orders.filter((order) => order.status === "preparando").length}</strong></div></section>
     <div className="filters">{["todos", "nuevo", "confirmado", "preparando", "enviado", "entregado"].map((item) => <button className={filter === item ? "active" : ""} onClick={() => setFilter(item)} key={item}>{item === "todos" ? "Todos" : statusLabels[item]}</button>)}</div>
     {error && <p className="admin-error">{error}</p>}
-    {loading ? <p className="loading">Cargando pedidos…</p> : <section className="order-layout"><div className="order-list">{visibleOrders.length === 0 ? <p className="empty-orders">No hay pedidos en esta lista.</p> : visibleOrders.map((order) => <button className={`order-row ${selected?.id === order.id ? "selected" : ""}`} onClick={() => setSelected(order)} key={order.id}><div><span className={`status ${order.status}`}>{statusLabels[order.status]}</span><strong>#{order.order_number} · {order.customer_name}</strong><small>{formatDateTime(order.created_at)}</small></div><b>{pesos.format(order.total)}</b></button>)}</div><OrderDetail order={selected} onStatusChange={updateStatus} /></section>}
+    {loading ? <p className="loading">Cargando pedidos…</p> : <section className="order-layout"><div className="order-list">{visibleOrders.length === 0 ? <p className="empty-orders">No hay pedidos en esta lista.</p> : visibleOrders.map((order) => <button className={`order-row ${selected?.id === order.id ? "selected" : ""}`} onClick={() => setSelected(order)} key={order.id}><div><span className={`status ${order.status}`}>{statusLabels[order.status]}</span><strong>#{order.order_number} · {order.customer_name}</strong>{order.reserved_label ? <small className="reserved-for">Para: {order.reserved_label}</small> : null}<small>{formatDateTime(order.created_at)}</small></div><b>{pesos.format(order.total)}</b></button>)}</div><OrderDetail order={selected} onStatusChange={updateStatus} /></section>}
   </main>;
 }
 
@@ -240,7 +272,7 @@ function OrderDetail({ order, onStatusChange }) {
   // así cada pedido muestra el valor que se le cobró aunque la tarifa cambie después.
   const itemsTotal = order.items.reduce((sum, item) => sum + item.unit_price * item.quantity, 0);
   const deliveryFee = order.total - itemsTotal;
-  return <aside className="order-detail"><div className="detail-heading"><div><span className={`status ${order.status}`}>{statusLabels[order.status]}</span><h2>#{order.order_number} · {order.customer_name}</h2><small>{formatDateTime(order.created_at)}</small></div><strong>{pesos.format(order.total)}</strong></div><section><h3>Contacto</h3><p>{order.customer_phone}</p>{whatsappLink(order) ? <a className="whatsapp-button" href={whatsappLink(order)} target="_blank" rel="noreferrer">💬 Escribir por WhatsApp</a> : null}</section><section><h3>Delivery</h3><p>{order.comuna}</p><p>{order.delivery_address}</p><p>Despacho: {pesos.format(deliveryFee)}</p></section><section><h3>Pedido</h3>{order.items.map((item, index) => <div className="item" key={index}><strong>{item.quantity}× {item.product}</strong>{item.sauce ? <span className="item-sauce">{item.sauce}</span> : null}{item.extras?.length ? <span>{item.extras.join(", ")}</span> : null}</div>)}</section><section><h3>Actualizar estado</h3><select value={order.status} onChange={(event) => onStatusChange(order, event.target.value)}>{Object.entries(statusLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></section></aside>;
+  return <aside className="order-detail"><div className="detail-heading"><div><span className={`status ${order.status}`}>{statusLabels[order.status]}</span><h2>#{order.order_number} · {order.customer_name}</h2><small>{formatDateTime(order.created_at)}</small></div><strong>{pesos.format(order.total)}</strong></div>{order.reserved_label ? <section><h3>Reservado para</h3><p>{order.reserved_label}</p></section> : null}<section><h3>Contacto</h3><p>{order.customer_phone}</p>{whatsappLink(order) ? <a className="whatsapp-button" href={whatsappLink(order)} target="_blank" rel="noreferrer">💬 Escribir por WhatsApp</a> : null}</section><section><h3>Delivery</h3><p>{order.comuna}</p><p>{order.delivery_address}</p><p>Despacho: {pesos.format(deliveryFee)}</p></section><section><h3>Pedido</h3>{order.items.map((item, index) => <div className="item" key={index}><strong>{item.quantity}× {item.product}</strong>{item.sauce ? <span className="item-sauce">{item.sauce}</span> : null}{item.extras?.length ? <span>{item.extras.join(", ")}</span> : null}</div>)}</section><section><h3>Actualizar estado</h3><select value={order.status} onChange={(event) => onStatusChange(order, event.target.value)}>{Object.entries(statusLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></section></aside>;
 }
 
 createRoot(document.getElementById("root")).render(<Admin />);

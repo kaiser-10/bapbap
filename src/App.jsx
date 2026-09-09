@@ -54,77 +54,95 @@ const DEFAULT_SAUCE = SAUCE_CHOICES[0];
 
 const DELIVERY_FEE = 2990;
 const COMUNAS = ["Puente Alto", "San Bernardo", "El Bosque", "La Pintana"];
-const OPEN_DAYS = ["Sat", "Sun"];
-const OPEN_HOUR = 12;
-const CLOSE_HOUR = 17;
 
-// Pausa puntual: no hay venta hasta esta fecha (formato YYYY-MM-DD, hora de Santiago).
-// Al llegar el día, la tienda vuelve sola a su horario normal; no hay que tocar nada.
-// Para reabrir antes, poner una fecha pasada. Debe coincidir con create-payment.
+// Bloques de entrega de la semana. Los pedidos se reciben cualquier día; el
+// cliente reserva en cuál de estos bloques quiere que le llegue. Debe
+// coincidir con BLOCKS en create-payment.
+const BLOCKS = [
+  { weekday: "Fri", label: "Viernes", openHour: 17, closeHour: 20 },
+  { weekday: "Sat", label: "Sábado", openHour: 12, closeHour: 20 },
+  { weekday: "Sun", label: "Domingo", openHour: 12, closeHour: 17 },
+];
+const WEEKDAY_INDEX = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+
+// Pausa puntual: no se ofrece ningún bloque anterior a esta fecha (formato
+// YYYY-MM-DD, hora de Santiago). Al llegar el día, vuelve solo; no hay que
+// tocar nada. Para reabrir antes, poner una fecha pasada. Debe coincidir con
+// create-payment.
 const REOPEN_DATE = "2026-08-22";
 const REOPEN_LABEL = "sábado 22 de agosto";
 
-function getSantiagoDate(date) {
-  return new Intl.DateTimeFormat("en-CA", {
+function getSantiagoNow(date = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-US", {
     timeZone: "America/Santiago",
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
-  }).format(date);
-}
-
-function isOnBreak(date = new Date()) {
-  return getSantiagoDate(date) < REOPEN_DATE;
-}
-
-function getSantiagoParts(date) {
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: "America/Santiago",
     weekday: "short",
     hour: "numeric",
     hour12: false,
   }).formatToParts(date);
+  const get = (type) => parts.find((part) => part.type === type)?.value;
   return {
-    weekday: parts.find((part) => part.type === "weekday").value,
-    hour: Number(parts.find((part) => part.type === "hour").value) % 24,
+    date: `${get("year")}-${get("month")}-${get("day")}`,
+    weekday: get("weekday"),
+    hour: Number(get("hour")) % 24,
   };
 }
 
-function isStoreOpen(date = new Date()) {
-  if (isOnBreak(date)) return false;
-  const { weekday, hour } = getSantiagoParts(date);
-  return OPEN_DAYS.includes(weekday) && hour >= OPEN_HOUR && hour < CLOSE_HOUR;
+function addDays(dateStr, days) {
+  const [year, month, day] = dateStr.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
 }
 
-function readClock() {
-  return { withinHours: isStoreOpen(), onBreak: isOnBreak() };
+function formatBlockDate(dateStr) {
+  const [year, month, day] = dateStr.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day, 12));
+  return new Intl.DateTimeFormat("es-CL", { day: "numeric", month: "short", timeZone: "UTC" }).format(date);
+}
+
+function nextOccurrence(block, now) {
+  const diff = (WEEKDAY_INDEX[block.weekday] - WEEKDAY_INDEX[now.weekday] + 7) % 7;
+  const alreadyClosed = diff === 0 && now.hour >= block.closeHour;
+  return addDays(now.date, alreadyClosed ? 7 : diff);
+}
+
+function getUpcomingBlocks(now = getSantiagoNow()) {
+  return BLOCKS.map((block) => ({ ...block, date: nextOccurrence(block, now) }))
+    .filter((block) => block.date >= REOPEN_DATE)
+    .sort((a, b) => a.date.localeCompare(b.date));
+}
+
+function blockLabel(block) {
+  return `${block.label} ${formatBlockDate(block.date)} · ${block.openHour}:00-${block.closeHour}:00 hrs`;
 }
 
 // El "agotado" lo controla el panel de admin y vive en la base de datos, porque
-// tiene que poder cambiar sin volver a desplegar. Si la consulta falla, seguimos
-// vendiendo: un problema de red nunca debe dejar la tienda cerrada por su cuenta.
-async function readSoldOut() {
-  if (!supabase) return false;
+// tiene que poder cambiar sin volver a desplegar. Guarda la fecha del bloque
+// sin stock. Si la consulta falla, seguimos vendiendo: un problema de red
+// nunca debe dejar la tienda cerrada por su cuenta.
+async function readSoldOutDate() {
+  if (!supabase) return null;
   try {
-    const { data, error } = await supabase
-      .from("store_settings")
-      .select("sold_out_on")
-      .maybeSingle();
-    if (error) return false;
-    return data?.sold_out_on === getSantiagoDate(new Date());
+    const { data, error } = await supabase.from("store_settings").select("sold_out_on").maybeSingle();
+    if (error) return null;
+    return data?.sold_out_on ?? null;
   } catch {
-    return false;
+    return null;
   }
 }
 
-function useStoreStatus() {
-  const [status, setStatus] = useState(() => ({ ...readClock(), soldOut: false }));
+function useAvailableBlocks() {
+  const [blocks, setBlocks] = useState(() => getUpcomingBlocks());
 
   useEffect(() => {
     let active = true;
     async function refresh() {
-      const soldOut = await readSoldOut();
-      if (active) setStatus({ ...readClock(), soldOut });
+      const soldOutDate = await readSoldOutDate();
+      const upcoming = getUpcomingBlocks().filter((block) => block.date !== soldOutDate);
+      if (active) setBlocks(upcoming);
     }
     refresh();
     const id = setInterval(refresh, 30000);
@@ -134,7 +152,7 @@ function useStoreStatus() {
     };
   }, []);
 
-  return status;
+  return blocks;
 }
 
 const pesos = new Intl.NumberFormat("es-CL", {
@@ -148,12 +166,12 @@ function formatPrice(price) {
 }
 
 function App() {
-  const { withinHours, onBreak, soldOut } = useStoreStatus();
-  const storeOpen = withinHours && !soldOut;
+  const blocks = useAvailableBlocks();
+  const canOrder = blocks.length > 0;
   const [cart, setCart] = useState([]);
   const [cartOpen, setCartOpen] = useState(false);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
-  const [form, setForm] = useState({ name: "", phone: "", comuna: COMUNAS[0], address: "" });
+  const [form, setForm] = useState({ reservation: "", name: "", phone: "", comuna: COMUNAS[0], address: "" });
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const cartTotal = useMemo(
@@ -163,6 +181,13 @@ function App() {
   const cartCount = cart.reduce((sum, item) => sum + item.quantity, 0);
   const deliveryFee = DELIVERY_FEE;
   const orderTotal = cartTotal + deliveryFee;
+
+  // Preselecciona el bloque más próximo apenas se sabe cuáles están disponibles.
+  useEffect(() => {
+    if (!form.reservation && blocks.length > 0) {
+      setForm((current) => ({ ...current, reservation: blocks[0].weekday }));
+    }
+  }, [blocks]);
 
   useEffect(() => {
     const items = document.querySelectorAll(".reveal");
@@ -212,12 +237,8 @@ function App() {
 
   async function checkout(event) {
     event.preventDefault();
-    if (!storeOpen) {
-      alert(soldOut
-        ? "Se nos acabó el stock por hoy. ¡Te esperamos en el próximo servicio!"
-        : onBreak
-          ? `Este fin de semana no hay venta. Volvemos el ${REOPEN_LABEL}.`
-          : "Estamos cerrados. Solo recibimos pedidos sábado y domingo de 12:00 a 17:00 hrs.");
+    if (!canOrder) {
+      alert(`No hay horarios de entrega disponibles por ahora. Volvemos el ${REOPEN_LABEL}.`);
       return;
     }
     if (!supabase) {
@@ -229,6 +250,7 @@ function App() {
     const { data, error } = await supabase.functions.invoke("create-payment", {
       body: {
         customer: { name: form.name, phone: form.phone, comuna: form.comuna, address: form.address },
+        reservation: { weekday: form.reservation },
         items: cart.map((item) => ({
         product: item.product,
         sauce: item.sauce,
@@ -271,19 +293,19 @@ function App() {
           </motion.div>
         </section>
 
-        <section className="promise"><span>{soldOut ? "AGOTADO POR HOY · VUELVE EN EL PRÓXIMO SERVICIO" : onBreak ? `ESTE FIN DE SEMANA NO HAY VENTA · VOLVEMOS EL ${REOPEN_LABEL.toUpperCase()}` : storeOpen ? `ABIERTO AHORA · HASTA LAS ${CLOSE_HOUR}:00 HRS` : `CERRADO · ABRIMOS SÁB Y DOM ${OPEN_HOUR}:00-${CLOSE_HOUR}:00 HRS`}</span><b>✦</b><span>HECHO AL MOMENTO</span><b>✦</b><span>NABO INCLUIDO</span><b>✦</b><span>PAGO SEGURO CON MERCADO PAGO</span></section>
+        <section className="promise"><span>{canOrder ? "RESERVA TU PEDIDO · VIE 17-20 · SÁB 12-20 · DOM 12-17" : `SIN CUPOS POR AHORA · VOLVEMOS EL ${REOPEN_LABEL.toUpperCase()}`}</span><b>✦</b><span>HECHO AL MOMENTO</span><b>✦</b><span>NABO INCLUIDO</span><b>✦</b><span>PAGO SEGURO CON MERCADO PAGO</span></section>
 
         <section className="menu-section" id="menu">
           <div className="section-title reveal"><p className="eyebrow">MENÚ</p><h2>Tu antojo comienza aquí.</h2><p>Elige una porción, personalízala y agrégala al carrito.</p></div>
           <div className="product-grid">
-            {products.map((product) => <ProductCard key={product.id} product={product} onAdd={addProduct} storeOpen={storeOpen} onBreak={onBreak} soldOut={soldOut} />)}
+            {products.map((product) => <ProductCard key={product.id} product={product} onAdd={addProduct} canOrder={canOrder} />)}
           </div>
           <p className="payment-note reveal">🔒 Pago seguro con <strong>Mercado Pago</strong> · Débito o crédito · No guardamos los datos de tu tarjeta</p>
         </section>
 
         <section className="steps" id="como-pedir">
           <div className="reveal"><p className="eyebrow">ASÍ DE SIMPLE</p><h2>Pedir es fácil.</h2></div>
-          <ol><li className="reveal"><span>01</span><strong>Arma tu pedido</strong><p>Suma bibimbap, arroz o bebida si quieres.</p></li><li className="reveal"><span>02</span><strong>Revisa tu carrito</strong><p>Completa los datos de entrega.</p></li><li className="reveal"><span>03</span><strong>Paga online</strong><p>Con Mercado Pago, débito o crédito.</p></li></ol>
+          <ol><li className="reveal"><span>01</span><strong>Arma tu pedido</strong><p>Suma bibimbap, arroz o bebida si quieres.</p></li><li className="reveal"><span>02</span><strong>Reserva tu bloque</strong><p>Elige cuándo lo quieres y tus datos de entrega.</p></li><li className="reveal"><span>03</span><strong>Paga online</strong><p>Con Mercado Pago, débito o crédito.</p></li></ol>
         </section>
       </main>
 
@@ -293,20 +315,20 @@ function App() {
 
       <AnimatePresence>
         {cartOpen && <Cart key="cart" cart={cart} total={cartTotal} onClose={() => setCartOpen(false)} onQuantity={changeQuantity} onCheckout={() => { setCartOpen(false); setCheckoutOpen(true); }} />}
-        {checkoutOpen && <Checkout key="checkout" subtotal={cartTotal} deliveryFee={deliveryFee} total={orderTotal} form={form} setForm={setForm} isSubmitting={isSubmitting} storeOpen={storeOpen} onBreak={onBreak} soldOut={soldOut} onClose={() => setCheckoutOpen(false)} onSubmit={checkout} />}
+        {checkoutOpen && <Checkout key="checkout" subtotal={cartTotal} deliveryFee={deliveryFee} total={orderTotal} form={form} setForm={setForm} isSubmitting={isSubmitting} blocks={blocks} canOrder={canOrder} onClose={() => setCheckoutOpen(false)} onSubmit={checkout} />}
       </AnimatePresence>
     </MotionConfig>
   );
 }
 
-function ProductCard({ product, onAdd, storeOpen, onBreak, soldOut }) {
+function ProductCard({ product, onAdd, canOrder }) {
   const [sauce, setSauce] = useState(product.hasSauce ? DEFAULT_SAUCE : null);
 
   return <motion.article className="product-card reveal" whileHover={{ y: -6, boxShadow: "0 18px 34px rgba(33,21,20,.14)" }}>
     <div className="food-art">{product.photo ? <img src={product.photo} alt={product.name} /> : <div className="food-art-placeholder" aria-hidden="true">🍚</div>}</div>
     <div className="product-content"><div className="product-top"><h3>{product.name}</h3><strong>{formatPrice(product.price)}</strong></div><p>{product.description}</p>
       {product.hasSauce ? <fieldset><legend>¿Cómo quieres el pollo?</legend>{SAUCE_CHOICES.map((choice) => <label className="extra" key={choice}><input type="radio" name={`sauce-${product.id}`} value={choice} checked={sauce === choice} onChange={() => setSauce(choice)} /><span>{choice}</span></label>)}</fieldset> : null}
-      <motion.button className="add-button" onClick={() => onAdd(product, sauce)} disabled={!storeOpen} whileTap={storeOpen ? { scale: 0.97 } : undefined}>{storeOpen ? <>Agregar · {formatPrice(product.price)} <span>+</span></> : soldOut ? "Agotado por hoy" : onBreak ? `Volvemos el ${REOPEN_LABEL}` : "Cerrado por ahora"}</motion.button>
+      <motion.button className="add-button" onClick={() => onAdd(product, sauce)} disabled={!canOrder} whileTap={canOrder ? { scale: 0.97 } : undefined}>{canOrder ? <>Agregar · {formatPrice(product.price)} <span>+</span></> : "No disponible por ahora"}</motion.button>
     </div>
   </motion.article>;
 }
@@ -320,12 +342,12 @@ function Cart({ cart, total, onClose, onQuantity, onCheckout }) {
   </motion.div>;
 }
 
-function Checkout({ subtotal, deliveryFee, total, form, setForm, isSubmitting, storeOpen, onBreak, soldOut, onClose, onSubmit }) {
+function Checkout({ subtotal, deliveryFee, total, form, setForm, isSubmitting, blocks, canOrder, onClose, onSubmit }) {
   function update(event) { setForm({ ...form, [event.target.name]: event.target.value }); }
   return <motion.div className="overlay" role="presentation" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.2 }}>
     <motion.section className="checkout-modal" role="dialog" aria-modal="true" aria-label="Finalizar pedido" initial={{ x: "100%" }} animate={{ x: 0 }} exit={{ x: "100%" }} transition={drawerTransition}>
       <div className="drawer-header"><h2>Finaliza tu pedido</h2><button onClick={onClose} aria-label="Cerrar">×</button></div>
-      <form onSubmit={onSubmit}><label>Nombre<input required maxLength={100} name="name" value={form.name} onChange={update} placeholder="Tu nombre" /></label><label>Teléfono<input required maxLength={30} type="tel" name="phone" value={form.phone} onChange={update} placeholder="+56 9 ..." /></label><label>Comuna<select name="comuna" value={form.comuna} onChange={update}>{COMUNAS.map((comuna) => <option key={comuna}>{comuna}</option>)}</select><small>Solo hacemos despacho a Puente Alto, San Bernardo, El Bosque y La Pintana.</small></label><label>Dirección<input required maxLength={200} name="address" value={form.address} onChange={update} placeholder="Calle, número y depto/casa" /></label><div className="payment-box">{storeOpen ? <><span>Método de pago</span><strong>Pago online seguro con Mercado Pago</strong><small>Te redirigiremos para completar el pago.</small></> : soldOut ? <><span>Agotado por hoy</span><strong>Se nos acabó el stock</strong><small>Gracias por preferirnos. Te esperamos en el próximo servicio.</small></> : onBreak ? <><span>Este fin de semana no hay venta</span><strong>Volvemos el {REOPEN_LABEL}</strong><small>Disculpa las molestias. Te esperamos ese día de 12:00 a 17:00 hrs.</small></> : <><span>Estamos cerrados</span><strong>Solo recibimos pedidos sábado y domingo</strong><small>De 12:00 a 17:00 hrs. Vuelve a intentarlo en ese horario.</small></>}</div><div className="checkout-subtotal"><span>Subtotal</span><span>{formatPrice(subtotal)}</span></div><div className="checkout-subtotal"><span>Despacho</span><span>{formatPrice(deliveryFee)}</span></div><div className="checkout-total"><span>Total del pedido</span><strong>{formatPrice(total)}</strong></div><motion.button className="primary-button checkout" type="submit" disabled={isSubmitting || !storeOpen} whileTap={!isSubmitting && storeOpen ? { scale: 0.97 } : undefined}>{isSubmitting ? "Abriendo pago..." : "Ir a pagar"} <span>→</span></motion.button><p className="secure-note">No almacenamos datos de tu tarjeta.</p></form>
+      <form onSubmit={onSubmit}><label>¿Cuándo lo quieres?{canOrder ? <select required name="reservation" value={form.reservation} onChange={update}>{blocks.map((block) => <option key={block.weekday} value={block.weekday}>{blockLabel(block)}</option>)}</select> : <select disabled><option>No disponible por ahora</option></select>}</label><label>Nombre<input required maxLength={100} name="name" value={form.name} onChange={update} placeholder="Tu nombre" /></label><label>Teléfono<input required maxLength={30} type="tel" name="phone" value={form.phone} onChange={update} placeholder="+56 9 ..." /></label><label>Comuna<select name="comuna" value={form.comuna} onChange={update}>{COMUNAS.map((comuna) => <option key={comuna}>{comuna}</option>)}</select><small>Solo hacemos despacho a Puente Alto, San Bernardo, El Bosque y La Pintana.</small></label><label>Dirección<input required maxLength={200} name="address" value={form.address} onChange={update} placeholder="Calle, número y depto/casa" /></label><div className="payment-box">{canOrder ? <><span>Método de pago</span><strong>Pago online seguro con Mercado Pago</strong><small>Te redirigiremos para completar el pago.</small></> : <><span>Sin cupos disponibles</span><strong>No estamos recibiendo pedidos por ahora</strong><small>Vuelve a intentarlo más tarde.</small></>}</div><div className="checkout-subtotal"><span>Subtotal</span><span>{formatPrice(subtotal)}</span></div><div className="checkout-subtotal"><span>Despacho</span><span>{formatPrice(deliveryFee)}</span></div><div className="checkout-total"><span>Total del pedido</span><strong>{formatPrice(total)}</strong></div><motion.button className="primary-button checkout" type="submit" disabled={isSubmitting || !canOrder} whileTap={!isSubmitting && canOrder ? { scale: 0.97 } : undefined}>{isSubmitting ? "Abriendo pago..." : "Ir a pagar"} <span>→</span></motion.button><p className="secure-note">No almacenamos datos de tu tarjeta.</p></form>
     </motion.section>
   </motion.div>;
 }
