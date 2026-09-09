@@ -52,8 +52,12 @@ const products = [
 const SAUCE_CHOICES = ["Con salsa", "Sin salsa", "Salsa aparte"];
 const DEFAULT_SAUCE = SAUCE_CHOICES[0];
 
-const DELIVERY_FEE = 2990;
-const COMUNAS = ["Puente Alto", "San Bernardo", "El Bosque", "La Pintana"];
+const COMUNA_GROUPS = [
+  { fee: 2990, comunas: ["Puente Alto", "San Bernardo", "El Bosque", "La Pintana"] },
+  { fee: 4490, comunas: ["La Florida", "La Granja", "San Ramón", "La Cisterna"] },
+];
+const COMUNA_FEES = Object.fromEntries(COMUNA_GROUPS.flatMap((group) => group.comunas.map((comuna) => [comuna, group.fee])));
+const COMUNAS = Object.keys(COMUNA_FEES);
 
 // Bloques de entrega de la semana. Los pedidos se reciben cualquier día; el
 // cliente reserva en cuál de estos bloques quiere que le llegue. Debe
@@ -179,7 +183,7 @@ function App() {
     [cart],
   );
   const cartCount = cart.reduce((sum, item) => sum + item.quantity, 0);
-  const deliveryFee = DELIVERY_FEE;
+  const deliveryFee = COMUNA_FEES[form.comuna] ?? 0;
   const orderTotal = cartTotal + deliveryFee;
 
   // Preselecciona el bloque más próximo apenas se sabe cuáles están disponibles.
@@ -347,7 +351,7 @@ function Checkout({ subtotal, deliveryFee, total, form, setForm, isSubmitting, b
   return <motion.div className="overlay" role="presentation" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.2 }}>
     <motion.section className="checkout-modal" role="dialog" aria-modal="true" aria-label="Finalizar pedido" initial={{ x: "100%" }} animate={{ x: 0 }} exit={{ x: "100%" }} transition={drawerTransition}>
       <div className="drawer-header"><h2>Finaliza tu pedido</h2><button onClick={onClose} aria-label="Cerrar">×</button></div>
-      <form onSubmit={onSubmit}><label>¿Cuándo lo quieres?{canOrder ? <select required name="reservation" value={form.reservation} onChange={update}>{blocks.map((block) => <option key={block.weekday} value={block.weekday}>{blockLabel(block)}</option>)}</select> : <select disabled><option>No disponible por ahora</option></select>}</label><label>Nombre<input required maxLength={100} name="name" value={form.name} onChange={update} placeholder="Tu nombre" /></label><label>Teléfono<input required maxLength={30} type="tel" name="phone" value={form.phone} onChange={update} placeholder="+56 9 ..." /></label><label>Comuna<select name="comuna" value={form.comuna} onChange={update}>{COMUNAS.map((comuna) => <option key={comuna}>{comuna}</option>)}</select><small>Solo hacemos despacho a Puente Alto, San Bernardo, El Bosque y La Pintana.</small></label><label>Dirección<input required maxLength={200} name="address" value={form.address} onChange={update} placeholder="Calle, número y depto/casa" /></label><div className="payment-box">{canOrder ? <><span>Método de pago</span><strong>Pago online seguro con Mercado Pago</strong><small>Te redirigiremos para completar el pago.</small></> : <><span>Sin cupos disponibles</span><strong>No estamos recibiendo pedidos por ahora</strong><small>Vuelve a intentarlo más tarde.</small></>}</div><div className="checkout-subtotal"><span>Subtotal</span><span>{formatPrice(subtotal)}</span></div><div className="checkout-subtotal"><span>Despacho</span><span>{formatPrice(deliveryFee)}</span></div><div className="checkout-total"><span>Total del pedido</span><strong>{formatPrice(total)}</strong></div><motion.button className="primary-button checkout" type="submit" disabled={isSubmitting || !canOrder} whileTap={!isSubmitting && canOrder ? { scale: 0.97 } : undefined}>{isSubmitting ? "Abriendo pago..." : "Ir a pagar"} <span>→</span></motion.button><p className="secure-note">No almacenamos datos de tu tarjeta.</p></form>
+      <form onSubmit={onSubmit}><label>¿Cuándo lo quieres?{canOrder ? <select required name="reservation" value={form.reservation} onChange={update}>{blocks.map((block) => <option key={block.weekday} value={block.weekday}>{blockLabel(block)}</option>)}</select> : <select disabled><option>No disponible por ahora</option></select>}</label><label>Nombre<input required maxLength={100} name="name" value={form.name} onChange={update} placeholder="Tu nombre" /></label><label>Teléfono<input required maxLength={30} type="tel" name="phone" value={form.phone} onChange={update} placeholder="+56 9 ..." /></label><label>Comuna<select name="comuna" value={form.comuna} onChange={update}>{COMUNA_GROUPS.map((group) => <optgroup label={`Despacho ${formatPrice(group.fee)}`} key={group.fee}>{group.comunas.map((comuna) => <option key={comuna}>{comuna}</option>)}</optgroup>)}</select><small>El valor del despacho cambia según la comuna. Solo despachamos a las que aparecen en la lista.</small></label><label>Dirección<input required maxLength={200} name="address" value={form.address} onChange={update} placeholder="Calle, número y depto/casa" /></label><div className="payment-box">{canOrder ? <><span>Método de pago</span><strong>Pago online seguro con Mercado Pago</strong><small>Te redirigiremos para completar el pago.</small></> : <><span>Sin cupos disponibles</span><strong>No estamos recibiendo pedidos por ahora</strong><small>Vuelve a intentarlo más tarde.</small></>}</div><div className="checkout-subtotal"><span>Subtotal</span><span>{formatPrice(subtotal)}</span></div><div className="checkout-subtotal"><span>Despacho</span><span>{formatPrice(deliveryFee)}</span></div><div className="checkout-total"><span>Total del pedido</span><strong>{formatPrice(total)}</strong></div><motion.button className="primary-button checkout" type="submit" disabled={isSubmitting || !canOrder} whileTap={!isSubmitting && canOrder ? { scale: 0.97 } : undefined}>{isSubmitting ? "Abriendo pago..." : "Ir a pagar"} <span>→</span></motion.button><p className="secure-note">No almacenamos datos de tu tarjeta.</p></form>
     </motion.section>
   </motion.div>;
 }

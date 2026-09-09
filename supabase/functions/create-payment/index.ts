@@ -16,10 +16,19 @@ const PRODUCTS = new Map([
 ]);
 // Preferencia de servido, sin costo. Debe coincidir con SAUCE_CHOICES en src/App.jsx.
 const SAUCE_CHOICES = new Set(["Con salsa", "Sin salsa", "Salsa aparte"]);
-const DELIVERY_FEE = 2990;
 const RATE_LIMIT_WINDOW_MS = 60_000;
 const RATE_LIMIT_MAX = 8;
-const COMUNAS = new Set(["Puente Alto", "San Bernardo", "El Bosque", "La Pintana"]);
+// El despacho depende de la comuna. Debe coincidir con COMUNA_GROUPS en src/App.jsx.
+const COMUNA_FEES = new Map([
+  ["Puente Alto", 2990],
+  ["San Bernardo", 2990],
+  ["El Bosque", 2990],
+  ["La Pintana", 2990],
+  ["La Florida", 4490],
+  ["La Granja", 4490],
+  ["San Ramón", 4490],
+  ["La Cisterna", 4490],
+]);
 
 // Bloques de entrega de la semana. Debe coincidir con BLOCKS en src/App.jsx.
 const BLOCKS = [
@@ -141,7 +150,7 @@ Deno.serve(async (request) => {
     if (
       typeof customer.name !== "string" || customer.name.trim().length < 2 || customer.name.trim().length > 100 ||
       typeof customer.phone !== "string" || customer.phone.trim().length < 6 || customer.phone.trim().length > 30 ||
-      !COMUNAS.has(customer.comuna) ||
+      !COMUNA_FEES.has(customer.comuna) ||
       typeof customer.address !== "string" || customer.address.trim().length < 5 || customer.address.trim().length > 200 ||
       submittedItems.length === 0 || submittedItems.length > 20
     ) {
@@ -159,7 +168,8 @@ Deno.serve(async (request) => {
       return { product: item.product, sauce, quantity, unit_price: productInfo.price };
     });
 
-    const total = validatedItems.reduce((sum, item) => sum + item.unit_price * item.quantity, 0) + DELIVERY_FEE;
+    const deliveryFee = COMUNA_FEES.get(customer.comuna) ?? 0;
+    const total = validatedItems.reduce((sum, item) => sum + item.unit_price * item.quantity, 0) + deliveryFee;
     const reservedLabel = `${block.label} ${formatBlockDate(block.date)} · ${block.openHour}:00-${block.closeHour}:00 hrs`;
 
     const { data: order, error: orderError } = await database.from("orders").insert({
@@ -188,7 +198,7 @@ Deno.serve(async (request) => {
             unit_price: item.unit_price,
             currency_id: "CLP",
           })),
-          { title: `Despacho · ${reservedLabel}`, quantity: 1, unit_price: DELIVERY_FEE, currency_id: "CLP" },
+          { title: `Despacho · ${reservedLabel}`, quantity: 1, unit_price: deliveryFee, currency_id: "CLP" },
         ],
         external_reference: order.id,
         back_urls: {
