@@ -17,6 +17,8 @@ const PRODUCTS = new Map([
 // Preferencia de servido, sin costo. Debe coincidir con SAUCE_CHOICES en src/App.jsx.
 const SAUCE_CHOICES = new Set(["Con salsa", "Sin salsa", "Salsa aparte"]);
 const DELIVERY_FEE = 2990;
+const RATE_LIMIT_WINDOW_MS = 60_000;
+const RATE_LIMIT_MAX = 8;
 const COMUNAS = new Set(["Puente Alto", "San Bernardo", "El Bosque", "La Pintana"]);
 const OPEN_DAYS = ["Sat", "Sun"];
 const OPEN_HOUR = 12;
@@ -95,6 +97,17 @@ Deno.serve(async (request) => {
       return response({ error: "Falta configurar un secreto del pago." }, 500);
     }
 
+    const database = createClient(supabaseUrl, serviceKey, { auth: { autoRefreshToken: false, persistSession: false } });
+
+    // Corta intentos en bucle antes de gastar nada en Mercado Pago. Si la consulta
+    // falla, dejamos pasar: un problema de red no debe bloquear a clientes reales.
+    const clientIp = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
+    const windowStart = new Date(Math.floor(Date.now() / RATE_LIMIT_WINDOW_MS) * RATE_LIMIT_WINDOW_MS).toISOString();
+    const { data: attempts, error: rateError } = await database.rpc("increment_rate_limit", { p_ip: clientIp, p_window: windowStart });
+    if (!rateError && attempts > RATE_LIMIT_MAX) {
+      return response({ error: "Demasiados intentos. Espera un momento e inténtalo de nuevo." }, 429);
+    }
+
     if (!isStoreOpen()) {
       return response({
         error: isOnBreak()
@@ -128,7 +141,6 @@ Deno.serve(async (request) => {
     });
 
     const total = validatedItems.reduce((sum, item) => sum + item.unit_price * item.quantity, 0) + DELIVERY_FEE;
-    const database = createClient(supabaseUrl, serviceKey, { auth: { autoRefreshToken: false, persistSession: false } });
 
     // Se comprueba antes de insertar, para no dejar pedidos huérfanos si está agotado.
     if (await isSoldOut(database)) {
