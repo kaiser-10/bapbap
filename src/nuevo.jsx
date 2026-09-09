@@ -21,6 +21,12 @@ const COMUNA_GROUPS = [
   { fee: 4490, comunas: ["La Florida", "La Granja", "San Ramón", "La Cisterna"] },
 ];
 
+const BLOCKS = [
+  { label: "Viernes", openHour: 17, closeHour: 20 },
+  { label: "Sábado", openHour: 12, closeHour: 20 },
+  { label: "Domingo", openHour: 12, closeHour: 17 },
+];
+
 // Sin horarios: esos viven en la sección de reserva, no acá.
 const TICKER = ["RESERVA CUALQUIER DÍA", "HECHO AL MOMENTO", "NABO INCLUIDO", "DESPACHO DESDE $2.990"];
 
@@ -88,9 +94,17 @@ function Nuevo() {
     <section className="coverage shell" id="cobertura">
       <span className="coverage-mark" aria-hidden="true">배달</span>
       <div className="section-head">
-        <span className="section-tag">COBERTURA</span>
-        <h2>¿Llegamos a tu comuna?</h2>
+        <span className="section-tag">CUÁNDO Y DÓNDE</span>
+        <h2>Reserva tu día.</h2>
+        <p>Pide cualquier día de la semana y elige en cuál de estos horarios lo quieres.</p>
       </div>
+      <div className="hours-grid">
+        {BLOCKS.map((block) => <div className="hour" key={block.label}>
+          <strong>{block.label}</strong>
+          <span>{block.openHour}:00 — {block.closeHour}:00</span>
+        </div>)}
+      </div>
+      <p className="coverage-label">DESPACHO SEGÚN TU COMUNA</p>
       <div className="coverage-grid">
         {COMUNA_GROUPS.map((group) => <div className="tier" key={group.fee}>
           <strong>{formatPrice(group.fee)}</strong>
