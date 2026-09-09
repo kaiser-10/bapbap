@@ -32,12 +32,13 @@ h1,h2,h3{font-family:"Jua",sans-serif;font-weight:400;line-height:.92;letter-spa
 .shell{padding-left:max(22px,calc((100vw - 1240px)/2));padding-right:max(22px,calc((100vw - 1240px)/2))}
 
 /* ---------- Header ---------- */
-.site-header{position:absolute;top:0;left:0;right:0;z-index:20;height:88px;display:flex;align-items:center;justify-content:space-between}
-.site-header img{height:46px;display:block}
-.site-header nav{display:flex;gap:26px}
-.site-header nav a{color:var(--cream);text-decoration:none;font-weight:700;font-size:.86rem;letter-spacing:.04em}
-.cart-pill{border:1px solid rgba(247,241,229,.45);background:transparent;color:var(--cream);font-weight:700;font-size:.86rem;padding:11px 18px;border-radius:99px;display:flex;align-items:center;gap:9px}
-.cart-pill span{background:var(--gold);color:var(--ink);width:21px;height:21px;border-radius:50%;display:grid;place-items:center;font-size:.75rem}
+.site-header{position:absolute;top:0;left:0;right:0;z-index:20;height:98px;display:flex;align-items:center;justify-content:space-between}
+.site-header img{height:60px;display:block}
+.site-header nav{display:flex;gap:32px}
+.site-header nav a{color:var(--cream);text-decoration:none;font-weight:700;font-size:1rem;letter-spacing:.03em;transition:color .18s}
+.site-header nav a:hover{color:var(--gold)}
+.cart-pill{border:1px solid rgba(247,241,229,.45);background:transparent;color:var(--cream);font-weight:700;font-size:.95rem;padding:12px 21px;border-radius:99px;display:flex;align-items:center;gap:10px}
+.cart-pill span{background:var(--gold);color:var(--ink);width:23px;height:23px;border-radius:50%;display:grid;place-items:center;font-size:.8rem}
 
 /* ---------- Hero ---------- */
 .hero{position:relative;min-height:100svh;display:flex;align-items:center;overflow:hidden;background:var(--ink);color:var(--cream);text-align:center}
@@ -51,7 +52,7 @@ h1,h2,h3{font-family:"Jua",sans-serif;font-weight:400;line-height:.92;letter-spa
 /* Ojo: acá no va .shell. Su padding lateral crece con el ancho de pantalla y,
    sumado al max-width, dejaba al titular en una caja de ~550px partiéndose en
    una palabra por línea. */
-.hero-copy{position:relative;z-index:2;width:100%;max-width:1260px;margin:0 auto;padding:92px 22px 52px}
+.hero-copy{position:relative;z-index:2;width:100%;max-width:1260px;margin:0 auto;padding:100px 22px 52px}
 .hero-eyebrow{display:inline-flex;align-items:center;gap:10px;background:var(--red);color:var(--cream);
   font-size:.71rem;font-weight:700;letter-spacing:.16em;padding:9px 14px;margin:0 0 26px}
 /* El tamaño mira ancho Y alto: en pantallas de laptop (bajas) manda el alto,
@@ -140,6 +141,8 @@ h1,h2,h3{font-family:"Jua",sans-serif;font-weight:400;line-height:.92;letter-spa
 
 @media(max-width:860px){
   .preview-flag{font-size:.62rem;padding:8px 11px;right:10px;bottom:10px}
+  .site-header{height:86px}
+  .site-header img{height:52px}
   .site-header nav{display:none}
   .hero-copy{padding-top:120px;padding-bottom:52px}
   .hero-sub{font-size:1rem}
