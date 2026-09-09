@@ -55,7 +55,7 @@ function Nuevo() {
 
     <section className="hero">
       <div className="hero-photo"><img src="/photos/pollo-hero.jpg" alt="Pollo coreano crocante bañado en salsa" /></div>
-      <div className="hero-copy shell">
+      <div className="hero-copy">
         <p className="hero-eyebrow">POLLO COREANO EN PUENTE ALTO</p>
         <h1>Crujiente por fuera.<br /><em>Inolvidable</em> por dentro.</h1>
         <p className="hero-sub">Pollo frito coreano bañado en salsa, servido con una pequeña porción de nabo. Reserva cualquier día y elige cuándo lo quieres.</p>

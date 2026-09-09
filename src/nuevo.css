@@ -48,10 +48,15 @@ h1,h2,h3{font-family:"Jua",sans-serif;font-weight:400;line-height:.92;letter-spa
 .hero-photo::after{content:"";position:absolute;inset:0;
   background:radial-gradient(ellipse 78% 62% at 50% 48%,rgba(23,13,12,.62) 0%,rgba(23,13,12,.74) 100%),
     linear-gradient(180deg,rgba(23,13,12,.55) 0%,rgba(23,13,12,0) 22%,rgba(23,13,12,0) 76%,rgba(23,13,12,.8) 100%)}
-.hero-copy{position:relative;z-index:2;padding-top:104px;padding-bottom:56px;max-width:980px;margin:0 auto}
+/* Ojo: acá no va .shell. Su padding lateral crece con el ancho de pantalla y,
+   sumado al max-width, dejaba al titular en una caja de ~550px partiéndose en
+   una palabra por línea. */
+.hero-copy{position:relative;z-index:2;width:100%;max-width:1260px;margin:0 auto;padding:92px 22px 52px}
 .hero-eyebrow{display:inline-flex;align-items:center;gap:10px;background:var(--red);color:var(--cream);
   font-size:.71rem;font-weight:700;letter-spacing:.16em;padding:9px 14px;margin:0 0 26px}
-.hero h1{font-size:clamp(3.2rem,8.4vw,7.4rem)}
+/* El tamaño mira ancho Y alto: en pantallas de laptop (bajas) manda el alto,
+   así el titular no empuja la bajada ni el botón fuera de la pantalla. */
+.hero h1{font-size:clamp(3rem,min(8.2vw,10.2vh),6.8rem)}
 .hero h1 em{font-style:normal;color:var(--gold)}
 .hero-sub{max-width:520px;font-size:1.06rem;line-height:1.6;color:rgba(247,241,229,.9);margin:24px auto 32px}
 .hero-cta{display:inline-flex;align-items:center;gap:14px;background:var(--gold);color:var(--ink);font-weight:700;
