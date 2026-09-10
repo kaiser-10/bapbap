@@ -4,6 +4,12 @@ import { supabase } from "./lib/supabase";
 
 const fadeUp = { hidden: { opacity: 0, y: 24 }, visible: { opacity: 1, y: 0 } };
 const drawerTransition = { type: "spring", stiffness: 320, damping: 34 };
+const cardReveal = {
+  initial: { opacity: 0, y: 26 },
+  whileInView: { opacity: 1, y: 0 },
+  viewport: { once: true, amount: 0.15 },
+  transition: { duration: 0.5, ease: "easeOut" },
+};
 
 const products = [
   {
@@ -41,7 +47,7 @@ const products = [
   {
     id: "arroz",
     name: "Porción de arroz",
-    description: "Arroz blanco recién preparado.",
+    description: "Arroz blanco recién preparado, para acompañar cualquier porción.",
     price: 2000,
     photo: "/photos/arroz.jpg",
     hasSauce: false,
@@ -68,6 +74,9 @@ const BLOCKS = [
   { weekday: "Sun", label: "Domingo", openHour: 12, closeHour: 17 },
 ];
 const WEEKDAY_INDEX = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+
+// Frases de la marquesina. Sin horarios: esos viven en la sección de reserva.
+const TICKER = ["RESERVA CUALQUIER DÍA", "HECHO AL MOMENTO", "NABO INCLUIDO", "DESPACHO DESDE $2.990"];
 
 // Pausa puntual: no se ofrece ningún bloque anterior a esta fecha (formato
 // YYYY-MM-DD, hora de Santiago). Al llegar el día, vuelve solo; no hay que
@@ -175,6 +184,7 @@ function App() {
   const [cart, setCart] = useState([]);
   const [cartOpen, setCartOpen] = useState(false);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
+  const [headerSolid, setHeaderSolid] = useState(false);
   const [form, setForm] = useState({ reservation: "", name: "", phone: "", comuna: COMUNAS[0], address: "" });
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -207,6 +217,17 @@ function App() {
       { threshold: 0.15 },
     );
     items.forEach((item) => observer.observe(item));
+    return () => observer.disconnect();
+  }, []);
+
+  // El header va transparente sobre la foto del hero y se vuelve sólido al
+  // bajar. Se mira un testigo al tope del hero en vez de escuchar el scroll:
+  // así no corre nada en cada cuadro.
+  useEffect(() => {
+    const sentinel = document.querySelector(".scroll-sentinel");
+    if (!sentinel) return;
+    const observer = new IntersectionObserver(([entry]) => setHeaderSolid(!entry.isIntersecting));
+    observer.observe(sentinel);
     return () => observer.disconnect();
   }, []);
 
@@ -273,56 +294,98 @@ function App() {
 
   return (
     <MotionConfig reducedMotion="user">
-      <header className="site-header">
+      <header className={headerSolid ? "site-header shell is-solid" : "site-header shell"}>
         <a className="brand" href="#inicio" aria-label="bapbap, inicio">
           <img src="/logo-horizontal.svg" alt="bapbap" />
         </a>
-        <nav aria-label="Navegación principal"><a href="#menu">Menú</a><a href="#como-pedir">Cómo pedir</a></nav>
-        <button className="cart-button" onClick={() => setCartOpen(true)} aria-label="Abrir carrito">
+        <nav aria-label="Navegación principal"><a href="#menu">Menú</a><a href="#cobertura">Cobertura</a><a href="#como-pedir">Cómo pedir</a></nav>
+        <button className="cart-pill" onClick={() => setCartOpen(true)} aria-label="Abrir carrito">
           Carrito <AnimatePresence mode="popLayout" initial={false}><motion.span key={cartCount} initial={{ scale: 1.4, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.6, opacity: 0 }} transition={{ type: "spring", stiffness: 400, damping: 15 }}>{cartCount}</motion.span></AnimatePresence>
         </button>
       </header>
 
       <main>
         <section className="hero" id="inicio">
+          <div className="scroll-sentinel" aria-hidden="true" />
+          <div className="hero-photo"><img src="/photos/pollo-hero-nuevo.jpg" alt="Bandeja de pollo coreano crocante bañado en salsa con sésamo" /></div>
           <motion.div className="hero-copy" initial="hidden" animate="visible" variants={fadeUp} transition={{ duration: 0.6, ease: "easeOut" }}>
             <img className="hero-logo" src="/logo-featured.svg" alt="bapbap" />
-            <p className="eyebrow">POLLO COREANO EN PUENTE ALTO</p>
+            <p className="hero-eyebrow">POLLO COREANO EN PUENTE ALTO</p>
             <h1>Crujiente por fuera.<br /><em>Inolvidable</em> por dentro.</h1>
-            <p>Pollo frito coreano bañado en salsa, servido con una pequeña porción de nabo.</p>
-            <a className="primary-button" href="#menu">Pide ahora <span>↓</span></a>
-          </motion.div>
-          <motion.div className="hero-image" initial="hidden" animate="visible" variants={fadeUp} transition={{ duration: 0.6, delay: 0.15, ease: "easeOut" }}>
-            <img src="/photos/pollo-hero.jpg" alt="Pollo coreano con nabo" />
+            <p className="hero-sub">Pollo frito coreano bañado en salsa, servido con una pequeña porción de nabo. Reserva cualquier día y elige cuándo lo quieres.</p>
+            <a className="hero-cta" href="#menu">Ver el menú <span>↓</span></a>
           </motion.div>
         </section>
 
-        <section className="promise"><span>{canOrder ? "RESERVA TU PEDIDO · VIE 17-20 · SÁB 12-20 · DOM 12-17" : `SIN CUPOS POR AHORA · VOLVEMOS EL ${REOPEN_LABEL.toUpperCase()}`}</span><b>✦</b><span>HECHO AL MOMENTO</span><b>✦</b><span>NABO INCLUIDO</span><b>✦</b><span>PAGO SEGURO CON MERCADO PAGO</span></section>
-
-        <section className="coverage reveal" id="cobertura">
-          <h2>¿Llegamos a tu comuna?</h2>
-          <div className="coverage-tiers">
-            {COMUNA_GROUPS.map((group) => <div className="coverage-tier" key={group.fee}><strong>Despacho {formatPrice(group.fee)}</strong><p>{group.comunas.join(" · ")}</p></div>)}
+        {/* Seis copias idénticas: la pista se corre justo la mitad (tres copias), así
+            el loop cierra sin salto y las tres restantes cubren cualquier pantalla.
+            Sin cupos la marquesina se detiene: el aviso no debe pasar de largo. */}
+        {canOrder ? <div className="ticker">
+          <div className="ticker-track">
+            {[0, 1, 2, 3, 4, 5].map((copy) => <div className="ticker-set" key={copy} aria-hidden={copy > 0}>
+              {TICKER.map((text) => <span key={text}>{text}<b aria-hidden="true">✦</b></span>)}
+            </div>)}
           </div>
-        </section>
+        </div> : <div className="ticker ticker-closed"><span>SIN CUPOS POR AHORA · VOLVEMOS EL {REOPEN_LABEL.toUpperCase()}</span></div>}
 
-        <section className="menu-section" id="menu">
-          <div className="section-title reveal"><p className="eyebrow">MENÚ</p><h2>Tu antojo comienza aquí.</h2><p>Elige una porción, personalízala y agrégala al carrito.</p></div>
-          <div className="product-grid">
-            {products.map((product) => <ProductCard key={product.id} product={product} onAdd={addProduct} canOrder={canOrder} />)}
+        <section className="menu shell" id="menu">
+          <div className="section-head reveal">
+            <span className="section-tag">MENÚ</span>
+            <h2>Tu antojo comienza aquí.</h2>
+            <p>Elige una porción, dinos cómo la quieres y agrégala al carrito.</p>
+          </div>
+          <div className="menu-grid">
+            {products.map((product, index) => <ProductCard key={product.id} product={product} onAdd={addProduct} canOrder={canOrder} wide={index === products.length - 1} />)}
           </div>
           <p className="payment-note reveal">🔒 Pago seguro con <strong>Mercado Pago</strong> · Débito o crédito · No guardamos los datos de tu tarjeta</p>
         </section>
 
-        <section className="steps" id="como-pedir">
-          <div className="reveal"><p className="eyebrow">ASÍ DE SIMPLE</p><h2>Pedir es fácil.</h2></div>
-          <ol><li className="reveal"><span>01</span><strong>Arma tu pedido</strong><p>Suma bibimbap, arroz o bebida si quieres.</p></li><li className="reveal"><span>02</span><strong>Elige el día</strong><p>Viernes, sábado o domingo, y tus datos de entrega.</p></li><li className="reveal"><span>03</span><strong>Paga online</strong><p>Con Mercado Pago, débito o crédito.</p></li></ol>
+        <section className="coverage shell reveal" id="cobertura">
+          <span className="coverage-mark" aria-hidden="true">배달</span>
+          <div className="section-head">
+            <span className="section-tag">CUÁNDO Y DÓNDE</span>
+            <h2>Reserva tu día.</h2>
+            <p>Pide cualquier día de la semana y elige en cuál de estos horarios lo quieres.</p>
+          </div>
+          <div className="hours-grid">
+            {BLOCKS.map((block) => <div className="hour" key={block.weekday}>
+              <strong>{block.label}</strong>
+              <span>{block.openHour}:00 — {block.closeHour}:00</span>
+            </div>)}
+          </div>
+          <p className="coverage-label">DESPACHO SEGÚN TU COMUNA</p>
+          <div className="coverage-grid">
+            {COMUNA_GROUPS.map((group) => <div className="tier" key={group.fee}>
+              <strong>{formatPrice(group.fee)}</strong>
+              <small>DESPACHO</small>
+              <p>{group.comunas.join(" · ")}</p>
+            </div>)}
+          </div>
+        </section>
+
+        <section className="steps shell" id="como-pedir">
+          <div className="section-head reveal">
+            <span className="section-tag">ASÍ DE SIMPLE</span>
+            <h2>Pedir es fácil.</h2>
+          </div>
+          <div className="steps-grid">
+            <div className="step reveal"><b>01</b><strong>Arma tu pedido</strong><p>Suma bibimbap, arroz o bebida si quieres.</p></div>
+            <div className="step reveal"><b>02</b><strong>Elige el día</strong><p>Viernes, sábado o domingo, y tus datos de entrega.</p></div>
+            <div className="step reveal"><b>03</b><strong>Paga online</strong><p>Con Mercado Pago, débito o crédito.</p></div>
+          </div>
         </section>
       </main>
 
-      <footer><p>Pollo coreano</p><a className="brand" href="#inicio" aria-label="bapbap, inicio"><img src="/logo-footer.svg" alt="bapbap" /></a><a href="https://www.instagram.com/bapbap.cl?igsh=MTRocjYzY2NydWZhdA==" target="_blank" rel="noreferrer">Instagram ↗</a></footer>
+      <footer className="site-footer shell">
+        <a className="brand" href="#inicio" aria-label="bapbap, inicio"><img src="/logo-footer.svg" alt="bapbap" /></a>
+        <p>Pollo coreano · Puente Alto</p>
+        <a href="https://www.instagram.com/bapbap.cl?igsh=MTRocjYzY2NydWZhdA==" target="_blank" rel="noreferrer">Instagram ↗</a>
+      </footer>
 
-      <button className="mobile-cart" onClick={() => setCartOpen(true)}><span>Tu pedido ({cartCount})</span><strong>{formatPrice(cartTotal)}</strong></button>
+      {/* La barra inferior solo aparece con algo dentro: vacía tapaba el botón del hero. */}
+      <AnimatePresence>
+        {cartCount > 0 && <motion.button className="mobile-cart" key="mobile-cart" onClick={() => setCartOpen(true)} initial={{ y: 90 }} animate={{ y: 0 }} exit={{ y: 90 }} transition={drawerTransition}><span>Tu pedido ({cartCount})</span><strong>{formatPrice(cartTotal)}</strong></motion.button>}
+      </AnimatePresence>
 
       <AnimatePresence>
         {cartOpen && <Cart key="cart" cart={cart} total={cartTotal} onClose={() => setCartOpen(false)} onQuantity={changeQuantity} onCheckout={() => { setCartOpen(false); setCheckoutOpen(true); }} />}
@@ -332,14 +395,21 @@ function App() {
   );
 }
 
-function ProductCard({ product, onAdd, canOrder }) {
+function ProductCard({ product, onAdd, canOrder, wide }) {
   const [sauce, setSauce] = useState(product.hasSauce ? DEFAULT_SAUCE : null);
 
-  return <motion.article className="product-card reveal" whileHover={{ y: -6, boxShadow: "0 18px 34px rgba(33,21,20,.14)" }}>
-    <div className="food-art">{product.photo ? <img src={product.photo} alt={product.name} /> : <div className="food-art-placeholder" aria-hidden="true">🍚</div>}</div>
-    <div className="product-content"><div className="product-top"><h3>{product.name}</h3><strong>{formatPrice(product.price)}</strong></div><p>{product.description}</p>
-      {product.hasSauce ? <fieldset><legend>¿Cómo quieres el pollo?</legend>{SAUCE_CHOICES.map((choice) => <label className="extra" key={choice}><input type="radio" name={`sauce-${product.id}`} value={choice} checked={sauce === choice} onChange={() => setSauce(choice)} /><span>{choice}</span></label>)}</fieldset> : null}
-      <motion.button className="add-button" onClick={() => onAdd(product, sauce)} disabled={!canOrder} whileTap={canOrder ? { scale: 0.97 } : undefined}>{canOrder ? <>Agregar · {formatPrice(product.price)} <span>+</span></> : "No disponible por ahora"}</motion.button>
+  return <motion.article className={wide ? "card card-wide" : "card"} {...cardReveal} whileHover={{ y: -7 }}>
+    <div className="card-photo">
+      <img src={product.photo} alt={product.name} />
+      <span className="price-stamp">{formatPrice(product.price)}</span>
+    </div>
+    <div className="card-body">
+      <h3>{product.name}</h3>
+      <p>{product.description}</p>
+      {product.hasSauce ? <div className="sauces" role="group" aria-label={`¿Cómo quieres ${product.name}?`}>
+        {SAUCE_CHOICES.map((choice) => <button type="button" key={choice} className={sauce === choice ? "on" : ""} aria-pressed={sauce === choice} onClick={() => setSauce(choice)}>{choice}</button>)}
+      </div> : null}
+      <motion.button className="card-add" onClick={() => onAdd(product, sauce)} disabled={!canOrder} whileTap={canOrder ? { scale: 0.97 } : undefined}>{canOrder ? <>Agregar <span>+</span></> : "No disponible por ahora"}</motion.button>
     </div>
   </motion.article>;
 }

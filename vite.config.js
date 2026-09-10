@@ -9,8 +9,6 @@ export default defineConfig({
         store: "index.html",
         admin: "admin.html",
         payment: "payment.html",
-        // Vista previa del rediseño. No la enlaza nadie: se entra a /nuevo a mano.
-        nuevo: "nuevo.html",
       },
     },
   },
