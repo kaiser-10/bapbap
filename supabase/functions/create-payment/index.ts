@@ -11,6 +11,8 @@ const PRODUCTS = new Map([
   ["Media porción", { price: 11990, hasSauce: true }],
   ["Porción (2 a 3 personas)", { price: 19990, hasSauce: true }],
   ["Bibimbap", { price: 8990, hasSauce: false }],
+  ["Kimbap", { price: 4990, hasSauce: false }],
+  ["Kimari", { price: 5990, hasSauce: false }],
   ["Coca-Cola en lata", { price: 1500, hasSauce: false }],
   ["Porción de arroz", { price: 2000, hasSauce: false }],
 ]);

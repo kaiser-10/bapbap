@@ -37,6 +37,22 @@ const products = [
     hasSauce: false,
   },
   {
+    id: "kimbap",
+    name: "Kimbap",
+    description: "Rollo de arroz con pastel de pescado, huevo, zanahoria y espinaca, envuelto en alga y cortado en rodajas.",
+    price: 4990,
+    photo: "/photos/kimbap.jpg",
+    hasSauce: false,
+  },
+  {
+    id: "kimari",
+    name: "Kimari",
+    description: "Rollo de alga relleno de fideo y verduras, frito hasta quedar crocante.",
+    price: 5990,
+    photo: "/photos/kimari.jpg",
+    hasSauce: false,
+  },
+  {
     id: "coca-cola",
     name: "Coca-Cola en lata",
     description: "350 ml, bien fría.",
