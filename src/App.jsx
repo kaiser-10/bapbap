@@ -446,7 +446,7 @@ function App() {
           <div className="section-head">
             <span className="section-tag">CUÁNDO Y DÓNDE</span>
             <h2>Ahora o cuando quieras.</h2>
-            <p>Si estamos abiertos te llega al toque. Si no, preordena cualquier día de la semana y elige la ventana horaria que te acomode.</p>
+            <p>Si estamos abiertos, te llega en {ASAP_MIN}-{ASAP_MAX} minutos. Si no, preordena cualquier día de la semana y elige la ventana horaria que más te acomode.</p>
           </div>
           <div className="hours-grid">
             {BLOCKS.map((block) => <div className={live?.weekday === block.weekday ? "hour is-open" : "hour"} key={block.weekday}>
