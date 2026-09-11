@@ -93,8 +93,8 @@ const BLOCKS = [
 // y con las filas sembradas en la tabla slot_limits.
 const SLOT_HOURS = 2;
 // Lo que se le promete a quien pide al momento. Debe coincidir con create-payment.
-const ASAP_MIN = 30;
-const ASAP_MAX = 40;
+const ASAP_MIN = 45;
+const ASAP_MAX = 55;
 const WEEKDAY_INDEX = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
 
 // Frases de la marquesina. Sin horarios: esos viven en la sección de reserva.

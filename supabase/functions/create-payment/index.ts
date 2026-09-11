@@ -42,8 +42,8 @@ const BLOCKS = [
 // SLOT_HOURS en src/App.jsx y con las filas sembradas en slot_limits.
 const SLOT_HOURS = 2;
 // Lo que se le promete al cliente que pide al momento. Debe coincidir con src/App.jsx.
-const ASAP_MIN = 30;
-const ASAP_MAX = 40;
+const ASAP_MIN = 45;
+const ASAP_MAX = 55;
 const WEEKDAY_INDEX: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
 
 // Pausa puntual: no se ofrece ninguna ventana anterior a esta fecha (YYYY-MM-DD,
