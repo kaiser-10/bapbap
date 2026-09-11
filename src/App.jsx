@@ -106,6 +106,14 @@ const TICKER = ["PIDE AHORA O PREORDENA", "HECHO AL MOMENTO", "NABO INCLUIDO", "
 const REOPEN_DATE = "2026-08-22";
 const REOPEN_LABEL = "sábado 22 de agosto";
 
+// La tienda puede quedarse sin ventanas por dos motivos distintos: la pausa
+// puntual de arriba, o que se hayan llenado todas. Solo en el primer caso se
+// sabe cuándo se vuelve; prometer una fecha en el segundo sería mentir, y
+// anunciar una fecha ya pasada deja el sitio con cara de abandonado.
+function pauseActive(now = getSantiagoNow()) {
+  return REOPEN_DATE > now.date;
+}
+
 function getSantiagoNow(date = new Date()) {
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone: "America/Santiago",
@@ -339,7 +347,9 @@ function App() {
   async function checkout(event) {
     event.preventDefault();
     if (!canOrder) {
-      alert(`No hay horarios de entrega disponibles por ahora. Volvemos el ${REOPEN_LABEL}.`);
+      alert(pauseActive()
+        ? `No hay horarios de entrega disponibles por ahora. Volvemos el ${REOPEN_LABEL}.`
+        : "No hay horarios de entrega disponibles por ahora. Vuelve a intentarlo más tarde.");
       return;
     }
     if (!supabase) {
@@ -403,7 +413,7 @@ function App() {
             <img className="hero-logo" src="/logo-featured.svg" alt="bapbap" />
             <p className="hero-eyebrow">POLLO COREANO EN PUENTE ALTO</p>
             <h1>Crujiente por fuera.<br /><em>Inolvidable</em> por dentro.</h1>
-            <p className="hero-sub">Pollo frito coreano bañado en salsa, servido con una pequeña porción de nabo. Reserva cualquier día y elige cuándo lo quieres.</p>
+            <p className="hero-sub">Pollo frito coreano bañado en salsa, servido con una pequeña porción de nabo. Pídelo ahora mismo o preordena y elige cuándo te llega.</p>
             <a className="hero-cta" href="#menu">Ver el menú <span>↓</span></a>
           </motion.div>
         </section>
@@ -417,7 +427,7 @@ function App() {
               {TICKER.map((text) => <span key={text}>{text}<b aria-hidden="true">✦</b></span>)}
             </div>)}
           </div>
-        </div> : <div className="ticker ticker-closed"><span>SIN CUPOS POR AHORA · VOLVEMOS EL {REOPEN_LABEL.toUpperCase()}</span></div>}
+        </div> : <div className="ticker ticker-closed"><span>{pauseActive() ? `SIN CUPOS POR AHORA · VOLVEMOS EL ${REOPEN_LABEL.toUpperCase()}` : "SIN CUPOS POR AHORA · VUELVE A INTENTARLO MÁS TARDE"}</span></div>}
 
         <section className="menu shell" id="menu">
           <div className="section-head reveal">
@@ -461,7 +471,7 @@ function App() {
             <h2>Pedir es fácil.</h2>
           </div>
           <div className="steps-grid">
-            <div className="step reveal"><b>01</b><strong>Arma tu pedido</strong><p>Suma bibimbap, arroz o bebida si quieres.</p></div>
+            <div className="step reveal"><b>01</b><strong>Arma tu pedido</strong><p>Suma kimbap, kimari, bibimbap o una bebida si quieres.</p></div>
             <div className="step reveal"><b>02</b><strong>Elige cuándo</strong><p>Al momento si estamos abiertos, o preorden con ventana horaria.</p></div>
             <div className="step reveal"><b>03</b><strong>Paga online</strong><p>Con Mercado Pago, débito o crédito.</p></div>
           </div>
