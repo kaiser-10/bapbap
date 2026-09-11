@@ -53,6 +53,7 @@ const REOPEN_DATE = "2026-08-22";
 type Now = { date: string; weekday: string; hour: number };
 type Block = { weekday: string; label: string; openHour: number; closeHour: number };
 type Slot = { weekday: string; label: string; date: string; startHour: number; endHour: number };
+type ValidatedItem = { product: string; sauce: string | null; quantity: number; unit_price: number };
 
 function getSantiagoNow(date = new Date()): Now {
   const parts = new Intl.DateTimeFormat("en-US", {
@@ -230,16 +231,22 @@ Deno.serve(async (request) => {
       return response({ error: "Los datos del pedido no son válidos." }, 400);
     }
 
-    const validatedItems = submittedItems.map((item: { product?: string; sauce?: string | null; quantity?: number }) => {
-      const productInfo = PRODUCTS.get(item.product ?? "");
+    // Un producto que no calza es culpa del pedido, no del servidor, así que
+    // devuelve 400 y no 500: el 500 esconde el problema entre los errores
+    // reales en los logs. Y el mensaje pide actualizar la página porque eso es
+    // justo lo que lo arregla cuando la tienda va por delante del servidor.
+    const validatedItems: ValidatedItem[] = [];
+    for (const item of submittedItems as { product?: string; sauce?: string | null; quantity?: number }[]) {
+      const name = item.product ?? "";
+      const productInfo = PRODUCTS.get(name);
       const quantity = Number(item.quantity);
       const sauceOk = productInfo ? (productInfo.hasSauce ? SAUCE_CHOICES.has(item.sauce ?? "") : true) : false;
       if (!productInfo || !sauceOk || !Number.isInteger(quantity) || quantity < 1 || quantity > 10) {
-        throw new Error("Producto no válido.");
+        console.error("Producto no válido:", JSON.stringify(item));
+        return response({ error: "Hay un producto de tu pedido que ya no está disponible. Actualiza la página e inténtalo de nuevo." }, 400);
       }
-      const sauce = productInfo.hasSauce ? item.sauce : null;
-      return { product: item.product, sauce, quantity, unit_price: productInfo.price };
-    });
+      validatedItems.push({ product: name, sauce: productInfo.hasSauce ? item.sauce ?? null : null, quantity, unit_price: productInfo.price });
+    }
 
     const deliveryFee = COMUNA_FEES.get(customer.comuna) ?? 0;
     const total = validatedItems.reduce((sum, item) => sum + item.unit_price * item.quantity, 0) + deliveryFee;
