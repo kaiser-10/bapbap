@@ -160,7 +160,8 @@ main>section{scroll-margin-top:98px}
 .site-footer .brand{justify-content:center}
 .site-footer img{height:74px;margin-bottom:22px}
 .site-footer p{margin:0 0 16px;color:rgba(247,241,229,.6);font-size:.9rem}
-.site-footer>a:last-child{color:var(--gold);font-weight:700;text-decoration:none}
+.footer-links{display:flex;gap:26px;justify-content:center;flex-wrap:wrap}
+.footer-links a{color:var(--gold);font-weight:700;text-decoration:none}
 
 /* ---------- Aparición al hacer scroll ---------- */
 .reveal{opacity:0;transform:translateY(28px);transition:opacity .6s ease,transform .6s ease}

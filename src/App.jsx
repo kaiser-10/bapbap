@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion, MotionConfig } from "framer-motion";
 import { supabase } from "./lib/supabase";
+import { INSTAGRAM_URL, whatsappUrl } from "./lib/contact";
 
 const fadeUp = { hidden: { opacity: 0, y: 24 }, visible: { opacity: 1, y: 0 } };
 const drawerTransition = { type: "spring", stiffness: 320, damping: 34 };
@@ -481,7 +482,10 @@ function App() {
       <footer className="site-footer shell">
         <a className="brand" href="#inicio" aria-label="bapbap, inicio"><img src="/logo-footer.svg" alt="bapbap" /></a>
         <p>Pollo coreano · Puente Alto</p>
-        <a href="https://www.instagram.com/bapbap.cl?igsh=MTRocjYzY2NydWZhdA==" target="_blank" rel="noreferrer">Instagram ↗</a>
+        <div className="footer-links">
+          <a href={whatsappUrl("Hola bapbap 👋 tengo una consulta")} target="_blank" rel="noreferrer">WhatsApp ↗</a>
+          <a href={INSTAGRAM_URL} target="_blank" rel="noreferrer">Instagram ↗</a>
+        </div>
       </footer>
 
       {/* La barra inferior solo aparece con algo dentro: vacía tapaba el botón del hero. */}

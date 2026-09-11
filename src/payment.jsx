@@ -1,5 +1,6 @@
 import { createRoot } from "react-dom/client";
 import { Analytics } from "@vercel/analytics/react";
+import { INSTAGRAM_URL, whatsappUrl } from "./lib/contact";
 import "./payment.css";
 
 const params = new URLSearchParams(window.location.search);
@@ -21,7 +22,8 @@ createRoot(document.getElementById("root")).render(
       {orderNumber && result !== "failure" && (
         <p className="order-number">
           Tu número de pedido es <strong>#{orderNumber}</strong>. Guárdalo: si tienes alguna duda, escríbenos por{" "}
-          <a href="https://www.instagram.com/bapbap.cl?igsh=MTRocjYzY2NydWZhdA==" target="_blank" rel="noreferrer">Instagram</a> con ese número.
+          <a href={whatsappUrl(`Hola bapbap 👋 tengo una consulta sobre mi pedido #${orderNumber}`)} target="_blank" rel="noreferrer">WhatsApp</a>{" "}
+          o <a href={INSTAGRAM_URL} target="_blank" rel="noreferrer">Instagram</a> con ese número.
         </p>
       )}
       <a className="button" href="/">Volver a la tienda</a>
