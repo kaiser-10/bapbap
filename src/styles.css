@@ -134,6 +134,11 @@ main>section{scroll-margin-top:98px}
 .hour{border:2px solid var(--gold);padding:24px 20px;text-align:center}
 .hour strong{display:block;font-size:.73rem;font-weight:700;letter-spacing:.16em;text-transform:uppercase;color:var(--gold);margin-bottom:12px}
 .hour span{display:block;font-family:"Jua",sans-serif;font-size:1.9rem;line-height:1}
+/* El día que está abierto se destaca: es la diferencia entre pedir al momento
+   y tener que preordenar. */
+.hour.is-open{background:var(--gold);color:var(--ink)}
+.hour.is-open strong{color:var(--ink)}
+.hour em{display:block;margin-top:10px;font-style:normal;font-size:.7rem;font-weight:700;letter-spacing:.14em;text-transform:uppercase}
 .coverage-label{position:relative;margin:0 0 14px;font-size:.73rem;font-weight:700;letter-spacing:.16em;color:rgba(247,241,229,.55)}
 .coverage-grid{position:relative;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:22px;max-width:1000px}
 .tier{border:2px solid rgba(247,241,229,.3);padding:30px}
@@ -196,6 +201,19 @@ main>section{scroll-margin-top:98px}
 .checkout-modal label{display:block;font-weight:700;font-size:.87rem;margin-bottom:16px}
 .checkout-modal input,.checkout-modal select{display:block;width:100%;margin-top:7px;border:1px solid var(--line);background:var(--cream);padding:12px}
 .checkout-modal label small{display:block;margin-top:6px;font-weight:400;font-size:.75rem;color:rgba(23,13,12,.6)}
+/* Las dos formas de pedir: al momento o preorden. Van como primera decisión del
+   formulario porque cambian lo que se pregunta más abajo. */
+.mode-choice{border:0;padding:0;margin:0 0 16px}
+.mode-choice legend{font-weight:700;font-size:.87rem;padding:0;margin-bottom:7px}
+.mode-toggle{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.mode{text-align:left;border:2px solid var(--line);background:var(--cream);padding:13px;cursor:pointer;transition:border-color .18s,background .18s}
+.mode:hover:not(:disabled){border-color:var(--ink)}
+.mode.on{border-color:var(--ink);background:var(--ink);color:var(--cream)}
+.mode b{display:block;font-size:.87rem;margin-bottom:4px}
+.mode small{display:block;font-size:.72rem;font-weight:400;color:rgba(23,13,12,.62);line-height:1.35}
+.mode.on small{color:rgba(247,241,229,.72)}
+.mode:disabled{opacity:.45;cursor:not-allowed}
+.mode-note{background:var(--cream-dim);padding:13px;font-size:.8rem;line-height:1.5;margin-bottom:16px}
 .payment-box{background:var(--cream-dim);padding:17px;margin-top:26px}
 .payment-box span,.payment-box small{display:block;font-size:.78rem}
 .payment-box strong{display:block;margin:6px 0}
@@ -224,9 +242,12 @@ main>section{scroll-margin-top:98px}
   .card-wide .card-photo{aspect-ratio:4/3;border-right:0;border-bottom:2px solid var(--ink)}
   .card-wide .card-body{padding:24px}
   .hours-grid{grid-template-columns:1fr;gap:12px;margin-bottom:34px}
-  .hour{display:flex;align-items:center;justify-content:space-between;text-align:left;padding:16px 20px}
+  .hour{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;text-align:left;padding:16px 20px}
   .hour strong{margin-bottom:0}
   .hour span{font-size:1.5rem}
+  .hour em{width:100%;margin-top:8px}
+  /* Dos columnas dejan los rótulos en tres líneas en pantalla angosta. */
+  .mode-toggle{grid-template-columns:1fr}
   .coverage-grid{grid-template-columns:1fr}
   .steps-grid{grid-template-columns:1fr;gap:30px}
   .site-footer img{height:60px}

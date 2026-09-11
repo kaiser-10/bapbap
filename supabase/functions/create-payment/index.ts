@@ -30,19 +30,29 @@ const COMUNA_FEES = new Map([
   ["La Cisterna", 4490],
 ]);
 
-// Bloques de entrega de la semana. Debe coincidir con BLOCKS en src/App.jsx.
+// Horario de atención. Debe coincidir con BLOCKS en src/App.jsx.
 const BLOCKS = [
   { weekday: "Fri", label: "Viernes", openHour: 17, closeHour: 20 },
   { weekday: "Sat", label: "Sábado", openHour: 12, closeHour: 20 },
   { weekday: "Sun", label: "Domingo", openHour: 12, closeHour: 17 },
 ];
+// Cada día se parte en ventanas de entrega de este largo. Debe coincidir con
+// SLOT_HOURS en src/App.jsx y con las filas sembradas en slot_limits.
+const SLOT_HOURS = 2;
+// Lo que se le promete al cliente que pide al momento. Debe coincidir con src/App.jsx.
+const ASAP_MIN = 30;
+const ASAP_MAX = 40;
 const WEEKDAY_INDEX: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
 
-// Pausa puntual: no se ofrece ningún bloque anterior a esta fecha (YYYY-MM-DD,
+// Pausa puntual: no se ofrece ninguna ventana anterior a esta fecha (YYYY-MM-DD,
 // hora de Santiago). Debe coincidir con REOPEN_DATE en src/App.jsx.
 const REOPEN_DATE = "2026-08-22";
 
-function getSantiagoNow(date = new Date()) {
+type Now = { date: string; weekday: string; hour: number };
+type Block = { weekday: string; label: string; openHour: number; closeHour: number };
+type Slot = { weekday: string; label: string; date: string; startHour: number; endHour: number };
+
+function getSantiagoNow(date = new Date()): Now {
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone: "America/Santiago",
     year: "numeric",
@@ -73,16 +83,62 @@ function formatBlockDate(dateStr: string) {
   return new Intl.DateTimeFormat("es-CL", { day: "numeric", month: "short", timeZone: "UTC" }).format(date);
 }
 
-function nextOccurrence(block: { weekday: string; closeHour: number }, now: { date: string; weekday: string; hour: number }) {
+// La última ventana del día se recorta al cierre, así nunca se ofrece una hora
+// en la que ya no hay nadie: el viernes cierra con 19-20 y el domingo con 16-17.
+function blockSlots(block: Block) {
+  const slots: { startHour: number; endHour: number }[] = [];
+  for (let start = block.openHour; start < block.closeHour; start += SLOT_HOURS) {
+    slots.push({ startHour: start, endHour: Math.min(start + SLOT_HOURS, block.closeHour) });
+  }
+  return slots;
+}
+
+function nextOccurrence(block: Block, now: Now) {
   const diff = (WEEKDAY_INDEX[block.weekday] - WEEKDAY_INDEX[now.weekday] + 7) % 7;
   const alreadyClosed = diff === 0 && now.hour >= block.closeHour;
   return addDays(now.date, alreadyClosed ? 7 : diff);
 }
 
-function getUpcomingBlocks(now = getSantiagoNow()) {
-  return BLOCKS.map((block) => ({ ...block, date: nextOccurrence(block, now) }))
-    .filter((block) => block.date >= REOPEN_DATE)
-    .sort((a, b) => a.date.localeCompare(b.date));
+// Ventanas que todavía se pueden preordenar. De hoy solo quedan las que aún no
+// empiezan: para la que está en curso existe el pedido al momento.
+function getUpcomingSlots(now: Now): Slot[] {
+  return BLOCKS.flatMap((block) => {
+    const date = nextOccurrence(block, now);
+    return blockSlots(block).map((slot) => ({ ...slot, weekday: block.weekday, label: block.label, date }));
+  })
+    .filter((slot) => slot.date >= REOPEN_DATE)
+    .filter((slot) => slot.date > now.date || slot.startHour > now.hour)
+    .sort((a, b) => a.date.localeCompare(b.date) || a.startHour - b.startHour);
+}
+
+// La ventana en curso, si la tienda está abierta en este momento. Los pedidos
+// al momento también ocupan cupo: para la cocina pesan igual que una preorden.
+function getLiveSlot(now: Now): Slot | null {
+  if (now.date < REOPEN_DATE) return null;
+  const block = BLOCKS.find((item) => item.weekday === now.weekday && now.hour >= item.openHour && now.hour < item.closeHour);
+  if (!block) return null;
+  const slot = blockSlots(block).find((item) => now.hour >= item.startHour && now.hour < item.endHour);
+  return slot ? { ...slot, weekday: block.weekday, label: block.label, date: now.date } : null;
+}
+
+function orderLabel(slot: Slot, mode: string) {
+  if (mode !== "ahora") return `${slot.label} ${formatBlockDate(slot.date)} · ${slot.startHour}:00-${slot.endHour}:00 hrs`;
+  return `Ahora · ${slot.label.toLowerCase()} ${formatBlockDate(slot.date)}, llega en ${ASAP_MIN}-${ASAP_MAX} min`;
+}
+
+// Acepta el cuerpo nuevo { order: { mode, date, startHour } } y también el
+// anterior { reservation: { weekday } }: una pestaña abierta desde antes del
+// cambio sigue pudiendo pagar en vez de recibir un error.
+function readRequest(body: { order?: { mode?: string; date?: string; startHour?: number }; reservation?: { weekday?: string } }) {
+  if (body.order && typeof body.order === "object") {
+    return {
+      mode: body.order.mode === "ahora" ? "ahora" : "preorden",
+      date: typeof body.order.date === "string" ? body.order.date : null,
+      startHour: Number.isInteger(body.order.startHour) ? Number(body.order.startHour) : null,
+      legacyWeekday: null as string | null,
+    };
+  }
+  return { mode: "preorden", date: null, startHour: null, legacyWeekday: body.reservation?.weekday ?? null };
 }
 
 // El panel de admin marca "agotado" guardando la fecha del bloque sin stock.
@@ -135,14 +191,29 @@ Deno.serve(async (request) => {
     }
 
     const body = await request.json();
-
-    let blocks = getUpcomingBlocks();
+    const now = getSantiagoNow();
+    const requested = readRequest(body);
     const soldOutDate = await getSoldOutDate(database);
-    if (soldOutDate) blocks = blocks.filter((block) => block.date !== soldOutDate);
 
-    const block = blocks.find((item) => item.weekday === body.reservation?.weekday);
-    if (!block) {
-      return response({ error: "Elige un horario de entrega disponible." }, 400);
+    // La ventana nunca se toma del cliente: se recalcula acá y solo se acepta si
+    // coincide con una que el servidor ofrecería en este mismo momento.
+    let slot: Slot | null;
+    if (requested.mode === "ahora") {
+      slot = getLiveSlot(now);
+      if (!slot) {
+        return response({ error: "Ahora mismo no estamos recibiendo pedidos al momento. Puedes dejar una preorden." }, 400);
+      }
+    } else {
+      const upcoming = getUpcomingSlots(now);
+      slot = requested.legacyWeekday
+        ? upcoming.find((item) => item.weekday === requested.legacyWeekday) ?? null
+        : upcoming.find((item) => item.date === requested.date && item.startHour === requested.startHour) ?? null;
+      if (!slot) {
+        return response({ error: "Elige una ventana de entrega disponible." }, 400);
+      }
+    }
+    if (soldOutDate && slot.date === soldOutDate) {
+      return response({ error: "Ese día se agotó. Elige otra ventana, por favor." }, 400);
     }
 
     const customer = body.customer ?? {};
@@ -170,22 +241,31 @@ Deno.serve(async (request) => {
 
     const deliveryFee = COMUNA_FEES.get(customer.comuna) ?? 0;
     const total = validatedItems.reduce((sum, item) => sum + item.unit_price * item.quantity, 0) + deliveryFee;
-    const reservedLabel = `${block.label} ${formatBlockDate(block.date)} · ${block.openHour}:00-${block.closeHour}:00 hrs`;
+    const reservedLabel = orderLabel(slot, requested.mode);
 
-    const { data: order, error: orderError } = await database.from("orders").insert({
-      customer_name: customer.name.trim(),
-      customer_phone: customer.phone.trim(),
-      delivery_method: "Delivery",
-      delivery_address: customer.address.trim(),
-      comuna: customer.comuna,
-      reserved_date: block.date,
-      reserved_label: reservedLabel,
-      items: validatedItems,
-      total,
-      payment_provider: "mercado_pago",
-      payment_status: "pendiente",
-    }).select("id, order_number").single();
-    if (orderError) throw orderError;
+    // place_order comprueba el cupo e inserta dentro de la misma transacción,
+    // así dos clientes no pueden llevarse el último a la vez.
+    const { data: placed, error: placeError } = await database.rpc("place_order", {
+      p_customer_name: customer.name.trim(),
+      p_customer_phone: customer.phone.trim(),
+      p_address: customer.address.trim(),
+      p_comuna: customer.comuna,
+      p_reserved_date: slot.date,
+      p_reserved_start: slot.startHour,
+      p_reserved_end: slot.endHour,
+      p_reserved_label: reservedLabel,
+      p_order_mode: requested.mode,
+      p_items: validatedItems,
+      p_total: total,
+    });
+    if (placeError) {
+      if (String(placeError.message ?? "").includes("SLOT_FULL")) {
+        return response({ error: "Esa ventana se acaba de llenar. Elige otra, por favor." }, 409);
+      }
+      throw placeError;
+    }
+    const order = (Array.isArray(placed) ? placed[0] : placed) as { order_id: string; order_num: number } | undefined;
+    if (!order) throw new Error("place_order no devolvió el pedido.");
 
     const payment = await fetch("https://api.mercadopago.com/checkout/preferences", {
       method: "POST",
@@ -200,11 +280,11 @@ Deno.serve(async (request) => {
           })),
           { title: `Despacho · ${reservedLabel}`, quantity: 1, unit_price: deliveryFee, currency_id: "CLP" },
         ],
-        external_reference: order.id,
+        external_reference: order.order_id,
         back_urls: {
-          success: `${siteUrl}/payment.html?result=success&pedido=${order.order_number}`,
-          pending: `${siteUrl}/payment.html?result=pending&pedido=${order.order_number}`,
-          failure: `${siteUrl}/payment.html?result=failure&pedido=${order.order_number}`,
+          success: `${siteUrl}/payment.html?result=success&pedido=${order.order_num}`,
+          pending: `${siteUrl}/payment.html?result=pending&pedido=${order.order_num}`,
+          failure: `${siteUrl}/payment.html?result=failure&pedido=${order.order_num}`,
         },
         auto_return: "approved",
       }),
@@ -212,7 +292,7 @@ Deno.serve(async (request) => {
     const paymentData = await payment.json();
     if (!payment.ok || !paymentData.init_point) throw new Error("Mercado Pago no pudo crear el cobro.");
 
-    await database.from("orders").update({ payment_preference_id: paymentData.id }).eq("id", order.id);
+    await database.from("orders").update({ payment_preference_id: paymentData.id }).eq("id", order.order_id);
     return response({ checkoutUrl: paymentData.init_point });
   } catch (error) {
     console.error(error);

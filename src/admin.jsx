@@ -43,14 +43,23 @@ function whatsappLink(order) {
   return `https://wa.me/${number}?text=${encodeURIComponent(build(order.customer_name, order.order_number))}`;
 }
 
-// Bloques de entrega de la semana. Solo se necesita closeHour para saber si el
-// bloque de hoy ya pasó. Debe coincidir con BLOCKS en src/App.jsx.
+// Horario de atención. Debe coincidir con BLOCKS en src/App.jsx.
 const BLOCKS = [
-  { weekday: "Fri", closeHour: 20 },
-  { weekday: "Sat", closeHour: 20 },
-  { weekday: "Sun", closeHour: 17 },
+  { weekday: "Fri", label: "Viernes", openHour: 17, closeHour: 20 },
+  { weekday: "Sat", label: "Sábado", openHour: 12, closeHour: 20 },
+  { weekday: "Sun", label: "Domingo", openHour: 12, closeHour: 17 },
 ];
+// Debe coincidir con SLOT_HOURS en src/App.jsx y con las filas de slot_limits.
+const SLOT_HOURS = 2;
 const WEEKDAY_INDEX = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+
+function blockSlots(block) {
+  const slots = [];
+  for (let start = block.openHour; start < block.closeHour; start += SLOT_HOURS) {
+    slots.push({ startHour: start, endHour: Math.min(start + SLOT_HOURS, block.closeHour) });
+  }
+  return slots;
+}
 
 function getSantiagoNow() {
   const parts = new Intl.DateTimeFormat("en-US", {
@@ -73,18 +82,31 @@ function addDays(dateStr, days) {
   return date.toISOString().slice(0, 10);
 }
 
+function nextOccurrence(block, now) {
+  const diff = (WEEKDAY_INDEX[block.weekday] - WEEKDAY_INDEX[now.weekday] + 7) % 7;
+  const alreadyClosed = diff === 0 && now.hour >= block.closeHour;
+  return addDays(now.date, alreadyClosed ? 7 : diff);
+}
+
 // El "agotado" se guarda como la fecha del bloque de entrega más próximo (el
 // que se está por preparar), en hora de Santiago: así la tienda se reactiva
 // sola apenas pase ese bloque.
 function nextBlockDate() {
   const now = getSantiagoNow();
-  const dates = BLOCKS.map((block) => {
-    const diff = (WEEKDAY_INDEX[block.weekday] - WEEKDAY_INDEX[now.weekday] + 7) % 7;
-    const alreadyClosed = diff === 0 && now.hour >= block.closeHour;
-    return addDays(now.date, alreadyClosed ? 7 : diff);
-  });
-  return dates.sort()[0];
+  return BLOCKS.map((block) => nextOccurrence(block, now)).sort()[0];
 }
+
+// Encabeza cada jornada de entrega. Se arma sobre mediodía UTC para que la
+// fecha no se corra un día al formatear.
+function formatDate(dateStr, options) {
+  const [year, month, day] = dateStr.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day, 12));
+  return new Intl.DateTimeFormat("es-CL", { ...options, timeZone: "UTC" }).format(date);
+}
+
+const formatGroupDate = (dateStr) => formatDate(dateStr, { weekday: "long", day: "numeric", month: "short" });
+// Sin el día de la semana: en el panel de cupos ya va como título.
+const formatShortDate = (dateStr) => formatDate(dateStr, { day: "numeric", month: "short" });
 
 function startOfDay(date) {
   const start = new Date(date);
@@ -118,15 +140,27 @@ function summarizeItems(orders) {
     .join(" · ");
 }
 
-// Agrupa por el bloque reservado (no por cuándo se hizo el pedido), para que
-// el panel muestre de una qué hay que preparar para cada día. Los pedidos sin
-// reserva (de antes de esta función) quedan en un grupo aparte al final.
+// La ventana de entrega del pedido, corta para la fila: "16-18" o "AHORA".
+// Los pedidos anteriores a las ventanas no tienen hora y no muestran nada.
+function slotChip(order) {
+  if (order.order_mode === "ahora") return "AHORA";
+  if (order.reserved_start == null) return null;
+  return `${order.reserved_start}-${order.reserved_end}`;
+}
+
+// Agrupa por jornada de entrega (no por cuándo se hizo el pedido), para que el
+// panel muestre de una qué hay que preparar cada día, y dentro de cada jornada
+// ordena por ventana: así la lista va en el orden en que hay que cocinar. Los
+// pedidos sin reserva (de antes de esta función) quedan aparte al final.
 function groupByReservation(orders) {
   const groups = new Map();
   for (const order of orders) {
     const key = order.reserved_date ?? "sin-reserva";
-    if (!groups.has(key)) groups.set(key, { date: order.reserved_date, label: order.reserved_label, orders: [] });
+    if (!groups.has(key)) groups.set(key, { date: order.reserved_date, orders: [] });
     groups.get(key).orders.push(order);
+  }
+  for (const group of groups.values()) {
+    group.orders.sort((a, b) => (a.reserved_start ?? 99) - (b.reserved_start ?? 99) || a.created_at.localeCompare(b.created_at));
   }
   return [...groups.values()].sort((a, b) => {
     if (!a.date) return 1;
@@ -196,6 +230,9 @@ function Admin() {
   const [unseen, setUnseen] = useState(0);
   const [soldOut, setSoldOut] = useState(false);
   const [savingSoldOut, setSavingSoldOut] = useState(false);
+  // Los cupos van plegados: se tocan de vez en cuando y el panel es para
+  // despachar pedidos, no para configurarlos.
+  const [showSlots, setShowSlots] = useState(false);
   const knownOrderIds = useRef(null);
   const playAlert = useAlertSound();
 
@@ -284,11 +321,12 @@ function Admin() {
     {unseen > 0 && <button className="new-order-alert" onClick={() => setUnseen(0)}>🔔 {unseen === 1 ? "1 pedido nuevo" : `${unseen} pedidos nuevos`} · toca para silenciar</button>}
     {soldOut && <p className="sold-out-notice">🛑 El próximo bloque de entrega está marcado como <strong>agotado</strong> y no aparece para reservar. Se reactiva solo apenas pase ese bloque.</p>}
     <header className="admin-header"><a className="brand" href="/"><strong>bapbap</strong></a><div><span className="admin-clock">{formatTime(now)}</span><span className="admin-email">{session.user.email}</span><button className="link-button" onClick={() => supabase.auth.signOut()}>Cerrar sesión</button></div></header>
-    <section className="admin-intro"><div><p className="eyebrow">ADMINISTRACIÓN</p><h1>Pedidos</h1><p>Revisa, confirma y prepara cada pedido desde un solo lugar.</p></div><div className="admin-actions"><button className={soldOut ? "sold-out-button active" : "sold-out-button"} onClick={toggleSoldOut} disabled={savingSoldOut}>{savingSoldOut ? "Guardando…" : soldOut ? "✅ Reactivar ventas" : "🛑 Marcar agotado"}</button><button className="refresh-button" onClick={playAlert}>🔔 Probar sonido</button><button className="refresh-button" onClick={() => loadOrders()}>↻ Actualizar</button></div></section>
+    <section className="admin-intro"><div><p className="eyebrow">ADMINISTRACIÓN</p><h1>Pedidos</h1><p>Revisa, confirma y prepara cada pedido desde un solo lugar.</p></div><div className="admin-actions"><button className={soldOut ? "sold-out-button active" : "sold-out-button"} onClick={toggleSoldOut} disabled={savingSoldOut}>{savingSoldOut ? "Guardando…" : soldOut ? "✅ Reactivar ventas" : "🛑 Marcar agotado"}</button><button className={showSlots ? "refresh-button active" : "refresh-button"} onClick={() => setShowSlots((open) => !open)}>🗓️ Cupos</button><button className="refresh-button" onClick={playAlert}>🔔 Probar sonido</button><button className="refresh-button" onClick={() => loadOrders()}>↻ Actualizar</button></div></section>
+    {showSlots && <SlotLimits onError={setError} />}
     <section className="admin-stats"><span>Hoy <strong>{pesos.format(salesToday)}</strong></span><span>Semana <strong>{pesos.format(salesWeek)}</strong></span><span>Total <strong>{orders.length}</strong></span><span>Nuevos <strong className="highlight">{newCount}</strong></span><span>Preparando <strong>{orders.filter((order) => order.status === "preparando").length}</strong></span></section>
     <div className="filters">{["todos", "nuevo", "confirmado", "preparando", "enviado", "entregado"].map((item) => <button className={filter === item ? "active" : ""} onClick={() => setFilter(item)} key={item}>{item === "todos" ? "Todos" : statusLabels[item]}</button>)}</div>
     {error && <p className="admin-error">{error}</p>}
-    {loading ? <p className="loading">Cargando pedidos…</p> : <section className="order-layout"><div className="order-list">{visibleOrders.length === 0 ? <p className="empty-orders">No hay pedidos en esta lista.</p> : groupByReservation(visibleOrders).map((group) => <div key={group.date ?? "sin-reserva"}><div className="order-group-header"><p className="order-group-title">{group.label ?? "Sin reserva"} · {group.orders.length} {group.orders.length === 1 ? "pedido" : "pedidos"}</p><p className="order-group-summary">{summarizeItems(group.orders)}</p></div>{group.orders.map((order) => <button className={`order-row ${selected?.id === order.id ? "selected" : ""}`} onClick={() => setSelected(order)} key={order.id}><div><span className={`status ${order.status}`}>{statusLabels[order.status]}</span><strong>#{order.order_number} · {order.customer_name}</strong></div><b>{pesos.format(order.total)}</b></button>)}</div>)}</div><OrderDetail order={selected} onStatusChange={updateStatus} /></section>}
+    {loading ? <p className="loading">Cargando pedidos…</p> : <section className="order-layout"><div className="order-list">{visibleOrders.length === 0 ? <p className="empty-orders">No hay pedidos en esta lista.</p> : groupByReservation(visibleOrders).map((group) => <div key={group.date ?? "sin-reserva"}><div className="order-group-header"><p className="order-group-title">{group.date ? formatGroupDate(group.date) : "Sin reserva"} · {group.orders.length} {group.orders.length === 1 ? "pedido" : "pedidos"}</p><p className="order-group-summary">{summarizeItems(group.orders)}</p></div>{group.orders.map((order) => <button className={`order-row ${selected?.id === order.id ? "selected" : ""}`} onClick={() => setSelected(order)} key={order.id}><div><span className={`status ${order.status}`}>{statusLabels[order.status]}</span>{slotChip(order) ? <span className={order.order_mode === "ahora" ? "slot-chip now" : "slot-chip"}>{slotChip(order)}</span> : null}<strong>#{order.order_number} · {order.customer_name}</strong></div><b>{pesos.format(order.total)}</b></button>)}</div>)}</div><OrderDetail order={selected} onStatusChange={updateStatus} /></section>}
   </main>;
 }
 
@@ -296,6 +334,73 @@ function Login() {
   const [email, setEmail] = useState(""); const [password, setPassword] = useState(""); const [error, setError] = useState(""); const [submitting, setSubmitting] = useState(false);
   async function submit(event) { event.preventDefault(); setSubmitting(true); setError(""); const { error: loginError } = await supabase.auth.signInWithPassword({ email, password }); setSubmitting(false); if (loginError) setError("Correo o contraseña incorrectos."); }
   return <main className="login-page"><form className="login-card" onSubmit={submit}><a className="brand" href="/"><strong>bapbap</strong></a><p className="eyebrow">PANEL PRIVADO</p><h1>Ingresa a tus pedidos.</h1><label>Correo administrador<input type="email" required value={email} onChange={(event) => setEmail(event.target.value)} /></label><label>Contraseña<input type="password" required value={password} onChange={(event) => setPassword(event.target.value)} /></label>{error && <p className="admin-error">{error}</p>}<button className="login-button" disabled={submitting}>{submitting ? "Ingresando…" : "Ingresar"}</button></form></main>;
+}
+
+// Los cupos viven en la base para poder cambiarlos sin volver a desplegar. Al
+// lado de cada tope va lo que ya se tomó en la próxima ocurrencia de ese día,
+// que es el número con el que se decide si abrir o cerrar una hora. Un tope en
+// 0 cierra esa ventana sin tocar el resto del día.
+function SlotLimits({ onError }) {
+  const [rows, setRows] = useState(null);
+  const [usage, setUsage] = useState(new Map());
+  const [saving, setSaving] = useState("");
+
+  const refresh = useCallback(async () => {
+    const [limits, load] = await Promise.all([
+      supabase.from("slot_limits").select("weekday, start_hour, end_hour, capacity"),
+      supabase.rpc("slot_load"),
+    ]);
+    if (limits.error) { onError("No pudimos cargar los cupos por ventana."); return; }
+    setRows(limits.data ?? []);
+    setUsage(new Map((load.data ?? []).map((row) => [`${row.slot_date}|${row.start_hour}`, row.taken])));
+  }, [onError]);
+
+  useEffect(() => { refresh(); }, [refresh]);
+
+  // Se guarda al salir del campo, no en cada tecla: escribir "12" no debe pasar
+  // primero por un tope de 1.
+  async function save(row) {
+    const key = `${row.weekday}|${row.start_hour}`;
+    const capacity = Math.min(99, Math.max(0, Number(row.capacity) || 0));
+    setSaving(key);
+    const { error } = await supabase.from("slot_limits")
+      .update({ capacity, updated_at: new Date().toISOString() })
+      .eq("weekday", row.weekday).eq("start_hour", row.start_hour);
+    setSaving("");
+    if (error) { onError("No pudimos guardar el cupo. Inténtalo otra vez."); return; }
+    onError("");
+    setRows((current) => current.map((item) => item.weekday === row.weekday && item.start_hour === row.start_hour ? { ...item, capacity } : item));
+  }
+
+  function edit(row, value) {
+    setRows((current) => current.map((item) => item.weekday === row.weekday && item.start_hour === row.start_hour ? { ...item, capacity: value } : item));
+  }
+
+  if (!rows) return <p className="loading">Cargando cupos…</p>;
+  const now = getSantiagoNow();
+
+  return <section className="slot-limits">
+    <p className="slot-limits-note">Cuántos pedidos acepta cada ventana. Al llenarse deja de aparecer para reservar. En <strong>0</strong> la ventana queda cerrada.</p>
+    <div className="slot-days">
+      {BLOCKS.map((block) => {
+        const date = nextOccurrence(block, now);
+        return <div className="slot-day" key={block.weekday}>
+          <h3>{block.label} <small>{formatShortDate(date)}</small></h3>
+          {blockSlots(block).map((slot) => {
+            const row = rows.find((item) => item.weekday === block.weekday && item.start_hour === slot.startHour);
+            const taken = usage.get(`${date}|${slot.startHour}`) ?? 0;
+            const full = row != null && taken >= Number(row.capacity);
+            return <label className="slot-row" key={slot.startHour}>
+              <span>{slot.startHour}:00 – {slot.endHour}:00</span>
+              <b className={full ? "full" : ""}>{full ? "lleno" : `${taken} ${taken === 1 ? "tomado" : "tomados"}`}</b>
+              <input type="number" min="0" max="99" value={row?.capacity ?? ""} disabled={!row || saving === `${block.weekday}|${slot.startHour}`}
+                onChange={(event) => edit(row, event.target.value)} onBlur={() => save(row)} />
+            </label>;
+          })}
+        </div>;
+      })}
+    </div>
+  </section>;
 }
 
 function OrderDetail({ order, onStatusChange }) {

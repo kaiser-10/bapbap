@@ -65,18 +65,23 @@ const COMUNA_GROUPS = [
 const COMUNA_FEES = Object.fromEntries(COMUNA_GROUPS.flatMap((group) => group.comunas.map((comuna) => [comuna, group.fee])));
 const COMUNAS = Object.keys(COMUNA_FEES);
 
-// Bloques de entrega de la semana. Los pedidos se reciben cualquier día; el
-// cliente reserva en cuál de estos bloques quiere que le llegue. Debe
-// coincidir con BLOCKS en create-payment.
+// Horario de atención. Debe coincidir con BLOCKS en create-payment.
 const BLOCKS = [
   { weekday: "Fri", label: "Viernes", openHour: 17, closeHour: 20 },
   { weekday: "Sat", label: "Sábado", openHour: 12, closeHour: 20 },
   { weekday: "Sun", label: "Domingo", openHour: 12, closeHour: 17 },
 ];
+// Cada día se parte en ventanas de entrega de este largo, que es lo que el
+// cliente elige al preordenar. Debe coincidir con SLOT_HOURS en create-payment
+// y con las filas sembradas en la tabla slot_limits.
+const SLOT_HOURS = 2;
+// Lo que se le promete a quien pide al momento. Debe coincidir con create-payment.
+const ASAP_MIN = 30;
+const ASAP_MAX = 40;
 const WEEKDAY_INDEX = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
 
 // Frases de la marquesina. Sin horarios: esos viven en la sección de reserva.
-const TICKER = ["RESERVA CUALQUIER DÍA", "HECHO AL MOMENTO", "NABO INCLUIDO", "DESPACHO DESDE $2.990"];
+const TICKER = ["PIDE AHORA O PREORDENA", "HECHO AL MOMENTO", "NABO INCLUIDO", "DESPACHO DESDE $2.990"];
 
 // Pausa puntual: no se ofrece ningún bloque anterior a esta fecha (formato
 // YYYY-MM-DD, hora de Santiago). Al llegar el día, vuelve solo; no hay que
@@ -116,46 +121,90 @@ function formatBlockDate(dateStr) {
   return new Intl.DateTimeFormat("es-CL", { day: "numeric", month: "short", timeZone: "UTC" }).format(date);
 }
 
+// La última ventana del día se recorta al cierre, así nunca se ofrece una hora
+// en la que ya no hay nadie: el viernes cierra con 19-20 y el domingo con 16-17.
+function blockSlots(block) {
+  const slots = [];
+  for (let start = block.openHour; start < block.closeHour; start += SLOT_HOURS) {
+    slots.push({ startHour: start, endHour: Math.min(start + SLOT_HOURS, block.closeHour) });
+  }
+  return slots;
+}
+
 function nextOccurrence(block, now) {
   const diff = (WEEKDAY_INDEX[block.weekday] - WEEKDAY_INDEX[now.weekday] + 7) % 7;
   const alreadyClosed = diff === 0 && now.hour >= block.closeHour;
   return addDays(now.date, alreadyClosed ? 7 : diff);
 }
 
-function getUpcomingBlocks(now = getSantiagoNow()) {
-  return BLOCKS.map((block) => ({ ...block, date: nextOccurrence(block, now) }))
-    .filter((block) => block.date >= REOPEN_DATE)
-    .sort((a, b) => a.date.localeCompare(b.date));
+// Ventanas que todavía se pueden preordenar. De hoy solo quedan las que aún no
+// empiezan: para la que está en curso existe el pedido al momento.
+function getUpcomingSlots(now = getSantiagoNow()) {
+  return BLOCKS.flatMap((block) => {
+    const date = nextOccurrence(block, now);
+    return blockSlots(block).map((slot) => ({ ...slot, weekday: block.weekday, label: block.label, date }));
+  })
+    .filter((slot) => slot.date >= REOPEN_DATE)
+    .filter((slot) => slot.date > now.date || slot.startHour > now.hour)
+    .sort((a, b) => a.date.localeCompare(b.date) || a.startHour - b.startHour);
 }
 
-function blockLabel(block) {
-  return `${block.label} ${formatBlockDate(block.date)} · ${block.openHour}:00-${block.closeHour}:00 hrs`;
+// La ventana en curso, si la tienda está abierta ahora mismo. Los pedidos al
+// momento también ocupan cupo: para la cocina pesan igual que una preorden.
+function getLiveSlot(now = getSantiagoNow()) {
+  if (now.date < REOPEN_DATE) return null;
+  const block = BLOCKS.find((item) => item.weekday === now.weekday && now.hour >= item.openHour && now.hour < item.closeHour);
+  if (!block) return null;
+  const slot = blockSlots(block).find((item) => now.hour >= item.startHour && now.hour < item.endHour);
+  return slot ? { ...slot, weekday: block.weekday, label: block.label, date: now.date } : null;
 }
 
-// El "agotado" lo controla el panel de admin y vive en la base de datos, porque
-// tiene que poder cambiar sin volver a desplegar. Guarda la fecha del bloque
-// sin stock. Si la consulta falla, seguimos vendiendo: un problema de red
-// nunca debe dejar la tienda cerrada por su cuenta.
-async function readSoldOutDate() {
-  if (!supabase) return null;
+const slotKey = (slot) => `${slot.date}|${slot.startHour}`;
+
+// Disponibilidad: el "agotado" del panel, el tope de cada ventana y cuántos
+// cupos van tomados. Todo vive en la base porque tiene que poder cambiar sin
+// volver a desplegar. Si algo falla se devuelve vacío y las ventanas quedan sin
+// tope: un problema de red nunca debe dejar la tienda cerrada por su cuenta.
+async function readAvailability() {
+  if (!supabase) return { soldOutDate: null, limits: [], load: [] };
   try {
-    const { data, error } = await supabase.from("store_settings").select("sold_out_on").maybeSingle();
-    if (error) return null;
-    return data?.sold_out_on ?? null;
+    const [settings, limits, load] = await Promise.all([
+      supabase.from("store_settings").select("sold_out_on").maybeSingle(),
+      supabase.from("slot_limits").select("weekday, start_hour, capacity"),
+      supabase.rpc("slot_load"),
+    ]);
+    return {
+      soldOutDate: settings.error ? null : settings.data?.sold_out_on ?? null,
+      limits: limits.error ? [] : limits.data ?? [],
+      load: load.error ? [] : load.data ?? [],
+    };
   } catch {
-    return null;
+    return { soldOutDate: null, limits: [], load: [] };
   }
 }
 
-function useAvailableBlocks() {
-  const [blocks, setBlocks] = useState(() => getUpcomingBlocks());
+function useAvailability() {
+  const [state, setState] = useState(() => ({ slots: getUpcomingSlots(), live: getLiveSlot() }));
 
   useEffect(() => {
     let active = true;
     async function refresh() {
-      const soldOutDate = await readSoldOutDate();
-      const upcoming = getUpcomingBlocks().filter((block) => block.date !== soldOutDate);
-      if (active) setBlocks(upcoming);
+      const { soldOutDate, limits, load } = await readAvailability();
+      const capacities = new Map(limits.map((row) => [`${row.weekday}|${row.start_hour}`, row.capacity]));
+      const taken = new Map(load.map((row) => [`${row.slot_date}|${row.start_hour}`, row.taken]));
+      // Sin tope configurado la ventana no limita: preferimos vender a cerrar
+      // por una fila que falta.
+      const decorate = (slot) => {
+        const capacity = capacities.get(`${slot.weekday}|${slot.startHour}`);
+        const used = taken.get(slotKey(slot)) ?? 0;
+        return { ...slot, full: capacity != null && used >= capacity };
+      };
+
+      const now = getSantiagoNow();
+      const slots = getUpcomingSlots(now).filter((slot) => slot.date !== soldOutDate).map(decorate);
+      const liveSlot = getLiveSlot(now);
+      const live = liveSlot && liveSlot.date !== soldOutDate ? decorate(liveSlot) : null;
+      if (active) setState({ slots, live });
     }
     refresh();
     const id = setInterval(refresh, 30000);
@@ -165,7 +214,7 @@ function useAvailableBlocks() {
     };
   }, []);
 
-  return blocks;
+  return state;
 }
 
 const pesos = new Intl.NumberFormat("es-CL", {
@@ -179,13 +228,16 @@ function formatPrice(price) {
 }
 
 function App() {
-  const blocks = useAvailableBlocks();
-  const canOrder = blocks.length > 0;
+  const { slots, live } = useAvailability();
+  // "Ahora" solo si estamos abiertos y la ventana en curso no se llenó.
+  const liveOpen = Boolean(live && !live.full);
+  const openSlots = useMemo(() => slots.filter((slot) => !slot.full), [slots]);
+  const canOrder = liveOpen || openSlots.length > 0;
   const [cart, setCart] = useState([]);
   const [cartOpen, setCartOpen] = useState(false);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [headerSolid, setHeaderSolid] = useState(false);
-  const [form, setForm] = useState({ reservation: "", name: "", phone: "", comuna: COMUNAS[0], address: "" });
+  const [form, setForm] = useState({ mode: "", slot: "", name: "", phone: "", comuna: COMUNAS[0], address: "" });
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const cartTotal = useMemo(
@@ -196,12 +248,20 @@ function App() {
   const deliveryFee = COMUNA_FEES[form.comuna] ?? 0;
   const orderTotal = cartTotal + deliveryFee;
 
-  // Preselecciona el bloque más próximo apenas se sabe cuáles están disponibles.
+  // Elige solo la opción razonable: al momento si estamos abiertos, si no la
+  // primera ventana libre. También corrige la elección que dejó de existir
+  // (cerró la tienda, se llenó la ventana) sin pisar la que el cliente tomó.
   useEffect(() => {
-    if (!form.reservation && blocks.length > 0) {
-      setForm((current) => ({ ...current, reservation: blocks[0].weekday }));
-    }
-  }, [blocks]);
+    setForm((current) => {
+      const mode = !current.mode
+        ? (liveOpen ? "ahora" : "preorden")
+        : (current.mode === "ahora" && !liveOpen && openSlots.length > 0 ? "preorden" : current.mode);
+      const slot = openSlots.some((item) => slotKey(item) === current.slot)
+        ? current.slot
+        : (openSlots[0] ? slotKey(openSlots[0]) : "");
+      return mode === current.mode && slot === current.slot ? current : { ...current, mode, slot };
+    });
+  }, [liveOpen, openSlots]);
 
   useEffect(() => {
     const items = document.querySelectorAll(".reveal");
@@ -271,11 +331,17 @@ function App() {
       return;
     }
 
+    const chosen = form.mode === "ahora" ? live : openSlots.find((item) => slotKey(item) === form.slot);
+    if (!chosen) {
+      alert("Esa opción de entrega ya no está disponible. Elige otra, por favor.");
+      return;
+    }
+
     setIsSubmitting(true);
     const { data, error } = await supabase.functions.invoke("create-payment", {
       body: {
         customer: { name: form.name, phone: form.phone, comuna: form.comuna, address: form.address },
-        reservation: { weekday: form.reservation },
+        order: { mode: form.mode, date: chosen.date, startHour: chosen.startHour },
         items: cart.map((item) => ({
         product: item.product,
         sauce: item.sauce,
@@ -286,7 +352,16 @@ function App() {
     setIsSubmitting(false);
 
     if (error || !data?.checkoutUrl) {
-      alert("No pudimos iniciar el pago. Inténtalo nuevamente.");
+      // El servidor explica por qué (ventana llena, día agotado). Sin ese
+      // detalle el cliente reintenta lo mismo una y otra vez.
+      let message = "No pudimos iniciar el pago. Inténtalo nuevamente.";
+      try {
+        const payload = await error?.context?.json?.();
+        if (payload?.error) message = payload.error;
+      } catch {
+        // Nos quedamos con el mensaje genérico.
+      }
+      alert(message);
       return;
     }
     window.location.assign(data.checkoutUrl);
@@ -344,13 +419,14 @@ function App() {
           <span className="coverage-mark" aria-hidden="true">배달</span>
           <div className="section-head">
             <span className="section-tag">CUÁNDO Y DÓNDE</span>
-            <h2>Reserva tu día.</h2>
-            <p>Pide cualquier día de la semana y elige en cuál de estos horarios lo quieres.</p>
+            <h2>Ahora o cuando quieras.</h2>
+            <p>Si estamos abiertos te llega al toque. Si no, preordena cualquier día de la semana y elige la ventana horaria que te acomode.</p>
           </div>
           <div className="hours-grid">
-            {BLOCKS.map((block) => <div className="hour" key={block.weekday}>
+            {BLOCKS.map((block) => <div className={live?.weekday === block.weekday ? "hour is-open" : "hour"} key={block.weekday}>
               <strong>{block.label}</strong>
               <span>{block.openHour}:00 — {block.closeHour}:00</span>
+              {live?.weekday === block.weekday ? <em>Abierto ahora</em> : null}
             </div>)}
           </div>
           <p className="coverage-label">DESPACHO SEGÚN TU COMUNA</p>
@@ -370,7 +446,7 @@ function App() {
           </div>
           <div className="steps-grid">
             <div className="step reveal"><b>01</b><strong>Arma tu pedido</strong><p>Suma bibimbap, arroz o bebida si quieres.</p></div>
-            <div className="step reveal"><b>02</b><strong>Elige el día</strong><p>Viernes, sábado o domingo, y tus datos de entrega.</p></div>
+            <div className="step reveal"><b>02</b><strong>Elige cuándo</strong><p>Al momento si estamos abiertos, o preorden con ventana horaria.</p></div>
             <div className="step reveal"><b>03</b><strong>Paga online</strong><p>Con Mercado Pago, débito o crédito.</p></div>
           </div>
         </section>
@@ -389,7 +465,7 @@ function App() {
 
       <AnimatePresence>
         {cartOpen && <Cart key="cart" cart={cart} total={cartTotal} onClose={() => setCartOpen(false)} onQuantity={changeQuantity} onCheckout={() => { setCartOpen(false); setCheckoutOpen(true); }} />}
-        {checkoutOpen && <Checkout key="checkout" subtotal={cartTotal} deliveryFee={deliveryFee} total={orderTotal} form={form} setForm={setForm} isSubmitting={isSubmitting} blocks={blocks} canOrder={canOrder} onClose={() => setCheckoutOpen(false)} onSubmit={checkout} />}
+        {checkoutOpen && <Checkout key="checkout" subtotal={cartTotal} deliveryFee={deliveryFee} total={orderTotal} form={form} setForm={setForm} isSubmitting={isSubmitting} slots={slots} live={live} liveOpen={liveOpen} canOrder={canOrder} onClose={() => setCheckoutOpen(false)} onSubmit={checkout} />}
       </AnimatePresence>
     </MotionConfig>
   );
@@ -423,12 +499,25 @@ function Cart({ cart, total, onClose, onQuantity, onCheckout }) {
   </motion.div>;
 }
 
-function Checkout({ subtotal, deliveryFee, total, form, setForm, isSubmitting, blocks, canOrder, onClose, onSubmit }) {
+function Checkout({ subtotal, deliveryFee, total, form, setForm, isSubmitting, slots, live, liveOpen, canOrder, onClose, onSubmit }) {
   function update(event) { setForm({ ...form, [event.target.name]: event.target.value }); }
   return <motion.div className="overlay" role="presentation" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.2 }}>
     <motion.section className="checkout-modal" role="dialog" aria-modal="true" aria-label="Finalizar pedido" initial={{ x: "100%" }} animate={{ x: 0 }} exit={{ x: "100%" }} transition={drawerTransition}>
       <div className="drawer-header"><h2>Finaliza tu pedido</h2><button onClick={onClose} aria-label="Cerrar">×</button></div>
-      <form onSubmit={onSubmit}><label>¿Cuándo lo quieres?{canOrder ? <select required name="reservation" value={form.reservation} onChange={update}>{blocks.map((block) => <option key={block.weekday} value={block.weekday}>{blockLabel(block)}</option>)}</select> : <select disabled><option>No disponible por ahora</option></select>}</label><label>Nombre<input required maxLength={100} name="name" value={form.name} onChange={update} placeholder="Tu nombre" /></label><label>Teléfono<input required maxLength={30} type="tel" name="phone" value={form.phone} onChange={update} placeholder="+56 9 ..." /></label><label>Comuna<select name="comuna" value={form.comuna} onChange={update}>{COMUNA_GROUPS.map((group) => <optgroup label={`Despacho ${formatPrice(group.fee)}`} key={group.fee}>{group.comunas.map((comuna) => <option key={comuna}>{comuna}</option>)}</optgroup>)}</select><small>El valor del despacho cambia según la comuna. Solo despachamos a las que aparecen en la lista.</small></label><label>Dirección<input required maxLength={200} name="address" value={form.address} onChange={update} placeholder="Calle, número y depto/casa" /></label><div className="payment-box">{canOrder ? <><span>Método de pago</span><strong>Pago online seguro con Mercado Pago</strong><small>Te redirigiremos para completar el pago.</small></> : <><span>Sin cupos disponibles</span><strong>No estamos recibiendo pedidos por ahora</strong><small>Vuelve a intentarlo más tarde.</small></>}</div><div className="checkout-subtotal"><span>Subtotal</span><span>{formatPrice(subtotal)}</span></div><div className="checkout-subtotal"><span>Despacho</span><span>{formatPrice(deliveryFee)}</span></div><div className="checkout-total"><span>Total del pedido</span><strong>{formatPrice(total)}</strong></div><motion.button className="primary-button checkout" type="submit" disabled={isSubmitting || !canOrder} whileTap={!isSubmitting && canOrder ? { scale: 0.97 } : undefined}>{isSubmitting ? "Abriendo pago..." : "Ir a pagar"} <span>→</span></motion.button><p className="secure-note">No almacenamos datos de tu tarjeta.</p></form>
+      <form onSubmit={onSubmit}><fieldset className="mode-choice"><legend>¿Cuándo lo quieres?</legend><div className="mode-toggle" role="group">
+        <button type="button" className={form.mode === "ahora" ? "mode on" : "mode"} aria-pressed={form.mode === "ahora"} disabled={!liveOpen} onClick={() => setForm({ ...form, mode: "ahora" })}>
+          <b>⚡ Lo quiero ahora</b>
+          <small>{liveOpen ? `Llega en ${ASAP_MIN}-${ASAP_MAX} min aprox.` : live ? "La hora en curso se llenó" : "Solo en horario de atención"}</small>
+        </button>
+        <button type="button" className={form.mode === "preorden" ? "mode on" : "mode"} aria-pressed={form.mode === "preorden"} disabled={slots.length === 0} onClick={() => setForm({ ...form, mode: "preorden" })}>
+          <b>📅 Preorden</b>
+          <small>{slots.length === 0 ? "Sin ventanas disponibles" : "Elige día y hora de entrega"}</small>
+        </button>
+      </div></fieldset>
+      {form.mode === "ahora"
+        ? <p className="mode-note">Empezamos a prepararlo apenas confirmes el pago. Llega en <strong>{ASAP_MIN}-{ASAP_MAX} minutos</strong> aproximadamente.</p>
+        : <label>Ventana de entrega{canOrder ? <select required name="slot" value={form.slot} onChange={update}>{slots.map((slot) => <option key={slotKey(slot)} value={slotKey(slot)} disabled={slot.full}>{slot.label} {formatBlockDate(slot.date)} · {slot.startHour}:00-{slot.endHour}:00{slot.full ? " · agotado" : ""}</option>)}</select> : <select disabled><option>No disponible por ahora</option></select>}<small>Te llega dentro de esa ventana. Puedes pedir hoy para cualquier día del fin de semana.</small></label>}
+      <label>Nombre<input required maxLength={100} name="name" value={form.name} onChange={update} placeholder="Tu nombre" /></label><label>Teléfono<input required maxLength={30} type="tel" name="phone" value={form.phone} onChange={update} placeholder="+56 9 ..." /></label><label>Comuna<select name="comuna" value={form.comuna} onChange={update}>{COMUNA_GROUPS.map((group) => <optgroup label={`Despacho ${formatPrice(group.fee)}`} key={group.fee}>{group.comunas.map((comuna) => <option key={comuna}>{comuna}</option>)}</optgroup>)}</select><small>El valor del despacho cambia según la comuna. Solo despachamos a las que aparecen en la lista.</small></label><label>Dirección<input required maxLength={200} name="address" value={form.address} onChange={update} placeholder="Calle, número y depto/casa" /></label><div className="payment-box">{canOrder ? <><span>Método de pago</span><strong>Pago online seguro con Mercado Pago</strong><small>Te redirigiremos para completar el pago.</small></> : <><span>Sin cupos disponibles</span><strong>No estamos recibiendo pedidos por ahora</strong><small>Vuelve a intentarlo más tarde.</small></>}</div><div className="checkout-subtotal"><span>Subtotal</span><span>{formatPrice(subtotal)}</span></div><div className="checkout-subtotal"><span>Despacho</span><span>{formatPrice(deliveryFee)}</span></div><div className="checkout-total"><span>Total del pedido</span><strong>{formatPrice(total)}</strong></div><motion.button className="primary-button checkout" type="submit" disabled={isSubmitting || !canOrder} whileTap={!isSubmitting && canOrder ? { scale: 0.97 } : undefined}>{isSubmitting ? "Abriendo pago..." : "Ir a pagar"} <span>→</span></motion.button><p className="secure-note">No almacenamos datos de tu tarjeta.</p></form>
     </motion.section>
   </motion.div>;
 }
