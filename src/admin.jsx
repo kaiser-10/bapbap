@@ -233,6 +233,9 @@ function Admin() {
   // Los cupos van plegados: se tocan de vez en cuando y el panel es para
   // despachar pedidos, no para configurarlos.
   const [showSlots, setShowSlots] = useState(false);
+  // Sube cada vez que se recargan los pedidos, para que los cupos tomados se
+  // actualicen con el mismo aviso de realtime y no haya que recargar la página.
+  const [ordersVersion, setOrdersVersion] = useState(0);
   const knownOrderIds = useRef(null);
   const playAlert = useAlertSound();
 
@@ -256,6 +259,7 @@ function Admin() {
         if (arrived.length) { playAlert(); setUnseen((count) => count + arrived.length); }
       }
       knownOrderIds.current = new Set(data.map((order) => order.id));
+      setOrdersVersion((version) => version + 1);
       setOrders(data);
       setSelected((current) => (current ? data.find((order) => order.id === current.id) ?? null : current));
     }
@@ -322,7 +326,7 @@ function Admin() {
     {soldOut && <p className="sold-out-notice">🛑 El próximo bloque de entrega está marcado como <strong>agotado</strong> y no aparece para reservar. Se reactiva solo apenas pase ese bloque.</p>}
     <header className="admin-header"><a className="brand" href="/"><strong>bapbap</strong></a><div><span className="admin-clock">{formatTime(now)}</span><span className="admin-email">{session.user.email}</span><button className="link-button" onClick={() => supabase.auth.signOut()}>Cerrar sesión</button></div></header>
     <section className="admin-intro"><div><p className="eyebrow">ADMINISTRACIÓN</p><h1>Pedidos</h1><p>Revisa, confirma y prepara cada pedido desde un solo lugar.</p></div><div className="admin-actions"><button className={soldOut ? "sold-out-button active" : "sold-out-button"} onClick={toggleSoldOut} disabled={savingSoldOut}>{savingSoldOut ? "Guardando…" : soldOut ? "✅ Reactivar ventas" : "🛑 Marcar agotado"}</button><button className={showSlots ? "refresh-button active" : "refresh-button"} onClick={() => setShowSlots((open) => !open)}>🗓️ Cupos</button><button className="refresh-button" onClick={playAlert}>🔔 Probar sonido</button><button className="refresh-button" onClick={() => loadOrders()}>↻ Actualizar</button></div></section>
-    {showSlots && <SlotLimits onError={setError} />}
+    {showSlots && <SlotLimits onError={setError} ordersVersion={ordersVersion} />}
     <section className="admin-stats"><span>Hoy <strong>{pesos.format(salesToday)}</strong></span><span>Semana <strong>{pesos.format(salesWeek)}</strong></span><span>Total <strong>{orders.length}</strong></span><span>Nuevos <strong className="highlight">{newCount}</strong></span><span>Preparando <strong>{orders.filter((order) => order.status === "preparando").length}</strong></span></section>
     <div className="filters">{["todos", "nuevo", "confirmado", "preparando", "enviado", "entregado"].map((item) => <button className={filter === item ? "active" : ""} onClick={() => setFilter(item)} key={item}>{item === "todos" ? "Todos" : statusLabels[item]}</button>)}</div>
     {error && <p className="admin-error">{error}</p>}
@@ -340,22 +344,37 @@ function Login() {
 // lado de cada tope va lo que ya se tomó en la próxima ocurrencia de ese día,
 // que es el número con el que se decide si abrir o cerrar una hora. Un tope en
 // 0 cierra esa ventana sin tocar el resto del día.
-function SlotLimits({ onError }) {
+function SlotLimits({ onError, ordersVersion }) {
   const [rows, setRows] = useState(null);
   const [usage, setUsage] = useState(new Map());
   const [saving, setSaving] = useState("");
 
-  const refresh = useCallback(async () => {
-    const [limits, load] = await Promise.all([
-      supabase.from("slot_limits").select("weekday, start_hour, end_hour, capacity"),
-      supabase.rpc("slot_load"),
-    ]);
-    if (limits.error) { onError("No pudimos cargar los cupos por ventana."); return; }
-    setRows(limits.data ?? []);
-    setUsage(new Map((load.data ?? []).map((row) => [`${row.slot_date}|${row.start_hour}`, row.taken])));
+  const readUsage = useCallback(async () => {
+    const { data, error } = await supabase.rpc("slot_load");
+    if (error) return;
+    setUsage(new Map((data ?? []).map((row) => [`${row.slot_date}|${row.start_hour}`, row.taken])));
+  }, []);
+
+  // Los topes se leen al abrir el panel: solo cambian desde acá.
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      const { data, error } = await supabase.from("slot_limits").select("weekday, start_hour, end_hour, capacity");
+      if (!active) return;
+      if (error) { onError("No pudimos cargar los cupos por ventana."); return; }
+      setRows(data ?? []);
+    })();
+    return () => { active = false; };
   }, [onError]);
 
-  useEffect(() => { refresh(); }, [refresh]);
+  // Los cupos tomados sí cambian solos, así que se refrescan al entrar un
+  // pedido y cada medio minuto por si el realtime se cae. Se actualiza únicamente
+  // el conteo, nunca los topes: hacerlo borraría lo que se esté escribiendo.
+  useEffect(() => {
+    readUsage();
+    const id = setInterval(readUsage, 30000);
+    return () => clearInterval(id);
+  }, [readUsage, ordersVersion]);
 
   // Se guarda al salir del campo, no en cada tecla: escribir "12" no debe pasar
   // primero por un tope de 1.
