@@ -1,4 +1,5 @@
 import { createRoot } from "react-dom/client";
+import { Analytics } from "@vercel/analytics/react";
 import "./payment.css";
 
 const params = new URLSearchParams(window.location.search);
@@ -25,5 +26,6 @@ createRoot(document.getElementById("root")).render(
       )}
       <a className="button" href="/">Volver a la tienda</a>
     </section>
+    <Analytics />
   </main>,
 );

@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "latest",
+    "@vercel/analytics": "^2.0.1",
     "@vitejs/plugin-react": "latest",
     "framer-motion": "latest",
     "react": "latest",
