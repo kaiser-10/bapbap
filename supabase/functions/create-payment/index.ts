@@ -50,6 +50,19 @@ const WEEKDAY_INDEX: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, 
 // hora de Santiago). Debe coincidir con REOPEN_DATE en src/App.jsx.
 const REOPEN_DATE = "2026-08-22";
 
+// Fines de semana sueltos en que no se atiende (feriados, vacaciones). A
+// diferencia de REOPEN_DATE, que esconde todo lo anterior a una fecha, esto
+// tapa solo el rango: cierra el fin de semana que viene sin tocar el de esta
+// semana. Ambos extremos incluidos. Debe coincidir con CLOSED_RANGES en
+// src/App.jsx.
+const CLOSED_RANGES = [
+  { from: "2026-09-18", to: "2026-09-20", reason: "Fiestas Patrias" },
+];
+
+function isClosedDate(date: string) {
+  return CLOSED_RANGES.some((range) => date >= range.from && date <= range.to);
+}
+
 type Now = { date: string; weekday: string; hour: number };
 type Block = { weekday: string; label: string; openHour: number; closeHour: number };
 type Slot = { weekday: string; label: string; date: string; startHour: number; endHour: number };
@@ -99,7 +112,13 @@ function blockSlots(block: Block) {
 function nextOccurrence(block: Block, now: Now) {
   const diff = (WEEKDAY_INDEX[block.weekday] - WEEKDAY_INDEX[now.weekday] + 7) % 7;
   const alreadyClosed = diff === 0 && now.hour >= block.closeHour;
-  return addDays(now.date, alreadyClosed ? 7 : diff);
+  let date = addDays(now.date, alreadyClosed ? 7 : diff);
+  // Si ese día cae en un cierre, se salta a la semana siguiente, igual que en
+  // la tienda: si no, el bloque desaparecería en vez de correrse.
+  for (let week = 0; week < 8 && isClosedDate(date); week += 1) {
+    date = addDays(date, 7);
+  }
+  return date;
 }
 
 // Ventanas que todavía se pueden preordenar. De hoy solo quedan las que aún no
@@ -117,7 +136,7 @@ function getUpcomingSlots(now: Now): Slot[] {
 // La ventana en curso, si la tienda está abierta en este momento. Los pedidos
 // al momento también ocupan cupo: para la cocina pesan igual que una preorden.
 function getLiveSlot(now: Now): Slot | null {
-  if (now.date < REOPEN_DATE) return null;
+  if (now.date < REOPEN_DATE || isClosedDate(now.date)) return null;
   const block = BLOCKS.find((item) => item.weekday === now.weekday && now.hour >= item.openHour && now.hour < item.closeHour);
   if (!block) return null;
   const slot = blockSlots(block).find((item) => now.hour >= item.startHour && now.hour < item.endHour);

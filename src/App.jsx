@@ -107,6 +107,20 @@ const TICKER = ["PIDE AHORA O PREORDENA", "HECHO AL MOMENTO", "NABO INCLUIDO", "
 const REOPEN_DATE = "2026-08-22";
 const REOPEN_LABEL = "sábado 22 de agosto";
 
+// Fines de semana sueltos en que no se atiende (feriados, vacaciones). A
+// diferencia de REOPEN_DATE, que esconde todo lo anterior a una fecha, esto
+// tapa solo el rango y deja intacto lo de antes y lo de después: sirve para
+// cerrar el fin de semana que viene sin tocar el de esta semana. Ambos
+// extremos incluidos, hora de Santiago. Al pasar la última fecha vuelve solo.
+// Debe coincidir con CLOSED_RANGES en create-payment.
+const CLOSED_RANGES = [
+  { from: "2026-09-18", to: "2026-09-20", reason: "Fiestas Patrias" },
+];
+
+function isClosedDate(date) {
+  return CLOSED_RANGES.some((range) => date >= range.from && date <= range.to);
+}
+
 // La tienda puede quedarse sin ventanas por dos motivos distintos: la pausa
 // puntual de arriba, o que se hayan llenado todas. Solo en el primer caso se
 // sabe cuándo se vuelve; prometer una fecha en el segundo sería mentir, y
@@ -159,7 +173,14 @@ function blockSlots(block) {
 function nextOccurrence(block, now) {
   const diff = (WEEKDAY_INDEX[block.weekday] - WEEKDAY_INDEX[now.weekday] + 7) % 7;
   const alreadyClosed = diff === 0 && now.hour >= block.closeHour;
-  return addDays(now.date, alreadyClosed ? 7 : diff);
+  let date = addDays(now.date, alreadyClosed ? 7 : diff);
+  // Si ese día cae en un cierre, se salta a la semana siguiente. Sin esto el
+  // bloque desaparecería del todo y el fin de semana del feriado la tienda se
+  // vería muerta, en vez de ofrecer el fin de semana siguiente.
+  for (let week = 0; week < 8 && isClosedDate(date); week += 1) {
+    date = addDays(date, 7);
+  }
+  return date;
 }
 
 // Ventanas que todavía se pueden preordenar. De hoy solo quedan las que aún no
@@ -177,7 +198,7 @@ function getUpcomingSlots(now = getSantiagoNow()) {
 // La ventana en curso, si la tienda está abierta ahora mismo. Los pedidos al
 // momento también ocupan cupo: para la cocina pesan igual que una preorden.
 function getLiveSlot(now = getSantiagoNow()) {
-  if (now.date < REOPEN_DATE) return null;
+  if (now.date < REOPEN_DATE || isClosedDate(now.date)) return null;
   const block = BLOCKS.find((item) => item.weekday === now.weekday && now.hour >= item.openHour && now.hour < item.closeHour);
   if (!block) return null;
   const slot = blockSlots(block).find((item) => now.hour >= item.startHour && now.hour < item.endHour);
