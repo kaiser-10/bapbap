@@ -5,18 +5,8 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-// hasSauce debe coincidir con el campo del mismo nombre en src/App.jsx: solo el
-// pollo pregunta la salsa, los demás productos no.
-const PRODUCTS = new Map([
-  ["Media porción", { price: 11990, hasSauce: true }],
-  ["Porción (2 a 3 personas)", { price: 19990, hasSauce: true }],
-  ["Bibimbap", { price: 8990, hasSauce: false }],
-  ["Kimbap", { price: 4990, hasSauce: false }],
-  ["Kimari", { price: 5990, hasSauce: false }],
-  ["Coca-Cola en lata", { price: 1500, hasSauce: false }],
-  ["Porción de arroz", { price: 2000, hasSauce: false }],
-]);
-// Preferencia de servido, sin costo. Debe coincidir con SAUCE_CHOICES en src/App.jsx.
+// Los productos y sus precios viven en la tabla products (se editan desde el
+// panel). Preferencia de servido, sin costo. Debe coincidir con SAUCE_CHOICES en src/App.jsx.
 const SAUCE_CHOICES = new Set(["Con salsa", "Sin salsa", "Salsa aparte"]);
 const RATE_LIMIT_WINDOW_MS = 60_000;
 const RATE_LIMIT_MAX = 8;
@@ -67,6 +57,7 @@ type Now = { date: string; weekday: string; hour: number };
 type Block = { weekday: string; label: string; openHour: number; closeHour: number };
 type Slot = { weekday: string; label: string; date: string; startHour: number; endHour: number };
 type ValidatedItem = { product: string; sauce: string | null; quantity: number; unit_price: number };
+type ProductRow = { id: string; name: string; price: number; has_sauce: boolean; sold_out: boolean; hidden: boolean };
 
 function getSantiagoNow(date = new Date()): Now {
   const parts = new Intl.DateTimeFormat("en-US", {
@@ -250,21 +241,35 @@ Deno.serve(async (request) => {
       return response({ error: "Los datos del pedido no son válidos." }, 400);
     }
 
+    // El precio nunca se toma del cliente. Si el menú no se puede leer no hay
+    // contra qué cobrar, así que acá sí se corta (a diferencia de los cupos).
+    const { data: productRows, error: productsError } = await database
+      .from("products")
+      .select("id, name, price, has_sauce, sold_out, hidden");
+    if (productsError) throw productsError;
+    const catalog = (productRows ?? []) as ProductRow[];
+
     // Un producto que no calza es culpa del pedido, no del servidor, así que
     // devuelve 400 y no 500: el 500 esconde el problema entre los errores
     // reales en los logs. Y el mensaje pide actualizar la página porque eso es
     // justo lo que lo arregla cuando la tienda va por delante del servidor.
+    // Se busca por id y, si no viene, por nombre: una pestaña abierta desde
+    // antes del cambio manda solo el nombre.
     const validatedItems: ValidatedItem[] = [];
-    for (const item of submittedItems as { product?: string; sauce?: string | null; quantity?: number }[]) {
-      const name = item.product ?? "";
-      const productInfo = PRODUCTS.get(name);
+    for (const item of submittedItems as { productId?: string; product?: string; sauce?: string | null; quantity?: number }[]) {
+      const productInfo = item.productId
+        ? catalog.find((row) => row.id === item.productId)
+        : catalog.find((row) => row.name === item.product);
       const quantity = Number(item.quantity);
-      const sauceOk = productInfo ? (productInfo.hasSauce ? SAUCE_CHOICES.has(item.sauce ?? "") : true) : false;
-      if (!productInfo || !sauceOk || !Number.isInteger(quantity) || quantity < 1 || quantity > 10) {
+      const sauceOk = productInfo ? (productInfo.has_sauce ? SAUCE_CHOICES.has(item.sauce ?? "") : true) : false;
+      if (!productInfo || productInfo.hidden || !sauceOk || !Number.isInteger(quantity) || quantity < 1 || quantity > 10) {
         console.error("Producto no válido:", JSON.stringify(item));
         return response({ error: "Hay un producto de tu pedido que ya no está disponible. Actualiza la página e inténtalo de nuevo." }, 400);
       }
-      validatedItems.push({ product: name, sauce: productInfo.hasSauce ? item.sauce ?? null : null, quantity, unit_price: productInfo.price });
+      if (productInfo.sold_out) {
+        return response({ error: `${productInfo.name} se agotó. Quítalo del carrito para continuar.` }, 400);
+      }
+      validatedItems.push({ product: productInfo.name, sauce: productInfo.has_sauce ? item.sauce ?? null : null, quantity, unit_price: productInfo.price });
     }
 
     const deliveryFee = COMUNA_FEES.get(customer.comuna) ?? 0;

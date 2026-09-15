@@ -12,65 +12,6 @@ const cardReveal = {
   transition: { duration: 0.5, ease: "easeOut" },
 };
 
-const products = [
-  {
-    id: "media",
-    name: "Media porción",
-    description: "Pollo coreano crocante con una pequeña porción de nabo.",
-    price: 11990,
-    photo: "/photos/pollo-individual.jpg",
-    hasSauce: true,
-  },
-  {
-    id: "porcion",
-    name: "Porción (2 a 3 personas)",
-    description: "El doble de pollo coreano crocante, con una pequeña porción de nabo.",
-    price: 19990,
-    photo: "/photos/pollo-compartir.jpg",
-    hasSauce: true,
-  },
-  {
-    id: "bibimbap",
-    name: "Bibimbap",
-    description: "Arroz con carne salteada, vegetales frescos, huevo frito y sésamo.",
-    price: 8990,
-    photo: "/photos/bibimbap.jpg",
-    hasSauce: false,
-  },
-  {
-    id: "kimbap",
-    name: "Kimbap",
-    description: "Rollo de arroz con pastel de pescado, huevo, zanahoria y espinaca, envuelto en alga y cortado en rodajas.",
-    price: 4990,
-    photo: "/photos/kimbap.jpg",
-    hasSauce: false,
-  },
-  {
-    id: "kimari",
-    name: "Kimari",
-    description: "Rollo de alga relleno de fideo y verduras, frito hasta quedar crocante.",
-    price: 5990,
-    photo: "/photos/kimari.jpg",
-    hasSauce: false,
-  },
-  {
-    id: "coca-cola",
-    name: "Coca-Cola en lata",
-    description: "350 ml, bien fría.",
-    price: 1500,
-    photo: "/photos/coca-cola.jpg",
-    hasSauce: false,
-  },
-  {
-    id: "arroz",
-    name: "Porción de arroz",
-    description: "Arroz blanco recién preparado, para acompañar cualquier porción.",
-    price: 2000,
-    photo: "/photos/arroz.jpg",
-    hasSauce: false,
-  },
-];
-
 // Preferencia de servido, sin costo. El orden importa: el primero es el que viene marcado.
 const SAUCE_CHOICES = ["Con salsa", "Sin salsa", "Salsa aparte"];
 const DEFAULT_SAUCE = SAUCE_CHOICES[0];
@@ -276,6 +217,38 @@ function useAvailability() {
   return state;
 }
 
+// El menú vive en la tabla products y se edita desde el panel. Se relee cada
+// medio minuto para que un "agotado" llegue a quien ya tiene la página abierta.
+// Si una recarga falla se mantiene lo último que se leyó: la validación de
+// verdad (precio, stock) la hace create-payment.
+function useProducts() {
+  const [state, setState] = useState({ products: [], status: "loading" });
+
+  useEffect(() => {
+    if (!supabase) { setState({ products: [], status: "error" }); return; }
+    let active = true;
+    async function refresh() {
+      const { data, error } = await supabase
+        .from("products")
+        .select("id, name, description, price, photo_url, has_sauce, sold_out")
+        .eq("hidden", false)
+        .order("sort_order")
+        .order("created_at");
+      if (!active) return;
+      if (error) { setState((current) => current.status === "ready" ? current : { products: [], status: "error" }); return; }
+      setState({ products: data ?? [], status: "ready" });
+    }
+    refresh();
+    const id = setInterval(refresh, 30000);
+    return () => {
+      active = false;
+      clearInterval(id);
+    };
+  }, []);
+
+  return state;
+}
+
 const pesos = new Intl.NumberFormat("es-CL", {
   style: "currency",
   currency: "CLP",
@@ -288,6 +261,7 @@ function formatPrice(price) {
 
 function App() {
   const { slots, live } = useAvailability();
+  const { products, status: menuStatus } = useProducts();
   // "Ahora" solo si estamos abiertos y la ventana en curso no se llenó.
   const liveOpen = Boolean(live && !live.full);
   const openSlots = useMemo(() => slots.filter((slot) => !slot.full), [slots]);
@@ -355,6 +329,7 @@ function App() {
     const key = `${product.id}-${sauce ?? "none"}`;
     const item = {
       key,
+      productId: product.id,
       product: product.name,
       sauce,
       unitPrice: product.price,
@@ -404,6 +379,7 @@ function App() {
         customer: { name: form.name, phone: form.phone, comuna: form.comuna, address: form.address },
         order: { mode: form.mode, date: chosen.date, startHour: chosen.startHour },
         items: cart.map((item) => ({
+        productId: item.productId,
         product: item.product,
         sauce: item.sauce,
         quantity: item.quantity,
@@ -474,8 +450,11 @@ function App() {
             <h2>Tu antojo comienza aquí.</h2>
             <p>Elige una porción, dinos cómo la quieres y agrégala al carrito.</p>
           </div>
+          {menuStatus === "loading" ? <p className="menu-status">Cargando el menú…</p> : null}
+          {menuStatus === "error" ? <p className="menu-status">No pudimos cargar el menú. Actualiza la página para intentarlo de nuevo.</p> : null}
+          {/* La última tarjeta ocupa todo el ancho solo si queda sola en su fila. */}
           <div className="menu-grid">
-            {products.map((product, index) => <ProductCard key={product.id} product={product} onAdd={addProduct} canOrder={canOrder} wide={index === products.length - 1} />)}
+            {products.map((product, index) => <ProductCard key={product.id} product={product} onAdd={addProduct} canOrder={canOrder} wide={products.length % 2 === 1 && index === products.length - 1} />)}
           </div>
           <p className="payment-note reveal">🔒 Pago seguro con <strong>Mercado Pago</strong> · Débito o crédito · No guardamos los datos de tu tarjeta</p>
         </section>
@@ -540,20 +519,23 @@ function App() {
 }
 
 function ProductCard({ product, onAdd, canOrder, wide }) {
-  const [sauce, setSauce] = useState(product.hasSauce ? DEFAULT_SAUCE : null);
+  const [sauce, setSauce] = useState(product.has_sauce ? DEFAULT_SAUCE : null);
+  const available = canOrder && !product.sold_out;
+  const classes = ["card", wide ? "card-wide" : "", product.sold_out ? "is-sold-out" : ""].filter(Boolean).join(" ");
 
-  return <motion.article className={wide ? "card card-wide" : "card"} {...cardReveal} whileHover={{ y: -7 }}>
+  return <motion.article className={classes} {...cardReveal} whileHover={product.sold_out ? undefined : { y: -7 }}>
     <div className="card-photo">
-      <img src={product.photo} alt={product.name} />
+      {product.photo_url ? <img src={product.photo_url} alt={product.name} /> : null}
       <span className="price-stamp">{formatPrice(product.price)}</span>
+      {product.sold_out ? <span className="sold-out-stamp">Agotado</span> : null}
     </div>
     <div className="card-body">
       <h3>{product.name}</h3>
       <p>{product.description}</p>
-      {product.hasSauce ? <div className="sauces" role="group" aria-label={`¿Cómo quieres ${product.name}?`}>
+      {product.has_sauce && !product.sold_out ? <div className="sauces" role="group" aria-label={`¿Cómo quieres ${product.name}?`}>
         {SAUCE_CHOICES.map((choice) => <button type="button" key={choice} className={sauce === choice ? "on" : ""} aria-pressed={sauce === choice} onClick={() => setSauce(choice)}>{choice}</button>)}
       </div> : null}
-      <motion.button className="card-add" onClick={() => onAdd(product, sauce)} disabled={!canOrder} whileTap={canOrder ? { scale: 0.97 } : undefined}>{canOrder ? <>Agregar <span>+</span></> : "No disponible por ahora"}</motion.button>
+      <motion.button className="card-add" onClick={() => onAdd(product, sauce)} disabled={!available} whileTap={available ? { scale: 0.97 } : undefined}>{product.sold_out ? "Agotado por ahora" : canOrder ? <>Agregar <span>+</span></> : "No disponible por ahora"}</motion.button>
     </div>
   </motion.article>;
 }

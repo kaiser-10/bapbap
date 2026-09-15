@@ -230,9 +230,10 @@ function Admin() {
   const [unseen, setUnseen] = useState(0);
   const [soldOut, setSoldOut] = useState(false);
   const [savingSoldOut, setSavingSoldOut] = useState(false);
-  // Los cupos van plegados: se tocan de vez en cuando y el panel es para
-  // despachar pedidos, no para configurarlos.
+  // Los cupos y los productos van plegados: se tocan de vez en cuando y el
+  // panel es para despachar pedidos, no para configurarlos.
   const [showSlots, setShowSlots] = useState(false);
+  const [showProducts, setShowProducts] = useState(false);
   // Sube cada vez que se recargan los pedidos, para que los cupos tomados se
   // actualicen con el mismo aviso de realtime y no haya que recargar la página.
   const [ordersVersion, setOrdersVersion] = useState(0);
@@ -325,7 +326,8 @@ function Admin() {
     {unseen > 0 && <button className="new-order-alert" onClick={() => setUnseen(0)}>🔔 {unseen === 1 ? "1 pedido nuevo" : `${unseen} pedidos nuevos`} · toca para silenciar</button>}
     {soldOut && <p className="sold-out-notice">🛑 El próximo bloque de entrega está marcado como <strong>agotado</strong> y no aparece para reservar. Se reactiva solo apenas pase ese bloque.</p>}
     <header className="admin-header"><a className="brand" href="/"><strong>bapbap</strong></a><div><span className="admin-clock">{formatTime(now)}</span><span className="admin-email">{session.user.email}</span><button className="link-button" onClick={() => supabase.auth.signOut()}>Cerrar sesión</button></div></header>
-    <section className="admin-intro"><div><p className="eyebrow">ADMINISTRACIÓN</p><h1>Pedidos</h1><p>Revisa, confirma y prepara cada pedido desde un solo lugar.</p></div><div className="admin-actions"><button className={soldOut ? "sold-out-button active" : "sold-out-button"} onClick={toggleSoldOut} disabled={savingSoldOut}>{savingSoldOut ? "Guardando…" : soldOut ? "✅ Reactivar ventas" : "🛑 Marcar agotado"}</button><button className={showSlots ? "refresh-button active" : "refresh-button"} onClick={() => setShowSlots((open) => !open)}>🗓️ Cupos</button><button className="refresh-button" onClick={playAlert}>🔔 Probar sonido</button><button className="refresh-button" onClick={() => loadOrders()}>↻ Actualizar</button></div></section>
+    <section className="admin-intro"><div><p className="eyebrow">ADMINISTRACIÓN</p><h1>Pedidos</h1><p>Revisa, confirma y prepara cada pedido desde un solo lugar.</p></div><div className="admin-actions"><button className={soldOut ? "sold-out-button active" : "sold-out-button"} onClick={toggleSoldOut} disabled={savingSoldOut}>{savingSoldOut ? "Guardando…" : soldOut ? "✅ Reactivar ventas" : "🛑 Marcar agotado"}</button><button className={showProducts ? "refresh-button active" : "refresh-button"} onClick={() => setShowProducts((open) => !open)}>🍗 Productos</button><button className={showSlots ? "refresh-button active" : "refresh-button"} onClick={() => setShowSlots((open) => !open)}>🗓️ Cupos</button><button className="refresh-button" onClick={playAlert}>🔔 Probar sonido</button><button className="refresh-button" onClick={() => loadOrders()}>↻ Actualizar</button></div></section>
+    {showProducts && <Products onError={setError} />}
     {showSlots && <SlotLimits onError={setError} ordersVersion={ordersVersion} />}
     <section className="admin-stats"><span>Hoy <strong>{pesos.format(salesToday)}</strong></span><span>Semana <strong>{pesos.format(salesWeek)}</strong></span><span>Total <strong>{orders.length}</strong></span><span>Nuevos <strong className="highlight">{newCount}</strong></span><span>Preparando <strong>{orders.filter((order) => order.status === "preparando").length}</strong></span></section>
     <div className="filters">{["todos", "nuevo", "confirmado", "preparando", "enviado", "entregado"].map((item) => <button className={filter === item ? "active" : ""} onClick={() => setFilter(item)} key={item}>{item === "todos" ? "Todos" : statusLabels[item]}</button>)}</div>
@@ -420,6 +422,198 @@ function SlotLimits({ onError, ordersVersion }) {
       })}
     </div>
   </section>;
+}
+
+const PHOTO_BUCKET = "product-photos";
+const PHOTO_MAX_SIDE = 1400;
+
+// Las fotos del celular pesan varios MB y la tienda las carga en datos móviles:
+// se achican y pasan a JPG antes de subirlas.
+async function compressPhoto(file) {
+  const bitmap = await createImageBitmap(file);
+  const scale = Math.min(1, PHOTO_MAX_SIDE / Math.max(bitmap.width, bitmap.height));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.round(bitmap.width * scale);
+  canvas.height = Math.round(bitmap.height * scale);
+  canvas.getContext("2d").drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  bitmap.close();
+  return new Promise((resolve, reject) => {
+    canvas.toBlob((blob) => (blob ? resolve(blob) : reject(new Error("No se pudo convertir la foto."))), "image/jpeg", 0.85);
+  });
+}
+
+async function uploadPhoto(file) {
+  const blob = await compressPhoto(file);
+  const path = `${crypto.randomUUID()}.jpg`;
+  const { error } = await supabase.storage.from(PHOTO_BUCKET).upload(path, blob, { contentType: "image/jpeg" });
+  if (error) throw error;
+  return supabase.storage.from(PHOTO_BUCKET).getPublicUrl(path).data.publicUrl;
+}
+
+// Solo las fotos subidas desde el panel viven en el bucket. Las de los
+// productos originales están en /public del repo y no se tocan.
+function bucketPath(url) {
+  const marker = `/storage/v1/object/public/${PHOTO_BUCKET}/`;
+  const index = url?.indexOf(marker) ?? -1;
+  return index === -1 ? null : url.slice(index + marker.length);
+}
+
+async function removePhoto(url) {
+  const path = bucketPath(url);
+  if (path) await supabase.storage.from(PHOTO_BUCKET).remove([path]);
+}
+
+// El menú de la tienda. Los pedidos ya hechos guardan nombre y precio, así que
+// editar o eliminar un producto no cambia el historial.
+function Products({ onError }) {
+  const [products, setProducts] = useState(null);
+  const [editing, setEditing] = useState(null);
+  const [busy, setBusy] = useState("");
+
+  const load = useCallback(async () => {
+    const { data, error } = await supabase.from("products").select("*").order("sort_order").order("created_at");
+    if (error) { onError("No pudimos cargar los productos. ¿Corriste products.sql en Supabase?"); return; }
+    setProducts(data ?? []);
+  }, [onError]);
+
+  useEffect(() => { load(); }, [load]);
+
+  async function patch(product, changes) {
+    setBusy(product.id);
+    const { error } = await supabase.from("products").update({ ...changes, updated_at: new Date().toISOString() }).eq("id", product.id);
+    setBusy("");
+    if (error) { onError("No pudimos guardar el cambio. Inténtalo otra vez."); return; }
+    onError("");
+    setProducts((current) => current.map((item) => item.id === product.id ? { ...item, ...changes } : item));
+  }
+
+  async function remove(product) {
+    if (!window.confirm(`¿Eliminar "${product.name}"? Desaparece del menú para siempre. Los pedidos anteriores no se ven afectados.\n\nSi solo quieres sacarlo por un tiempo, usa "Ocultar".`)) return;
+    setBusy(product.id);
+    const { error } = await supabase.from("products").delete().eq("id", product.id);
+    setBusy("");
+    if (error) { onError("No pudimos eliminar el producto."); return; }
+    onError("");
+    removePhoto(product.photo_url);
+    setProducts((current) => current.filter((item) => item.id !== product.id));
+  }
+
+  function saved() {
+    setEditing(null);
+    load();
+  }
+
+  if (!products) return <p className="loading">Cargando productos…</p>;
+  const nextSortOrder = products.reduce((max, item) => Math.max(max, item.sort_order), 0) + 10;
+
+  return <section className="products-panel">
+    <div className="products-head">
+      <p className="slot-limits-note">Lo que marques acá se ve en la tienda en menos de un minuto. <strong>Agotado</strong> lo deja visible pero sin poder pedirlo; <strong>Ocultar</strong> lo saca del menú.</p>
+      {editing ? null : <button className="login-button product-new" onClick={() => setEditing("new")}>+ Agregar producto</button>}
+    </div>
+    {editing === "new" ? <ProductForm sortOrder={nextSortOrder} onCancel={() => setEditing(null)} onSaved={saved} /> : null}
+    <div className="product-list">
+      {products.map((product) => editing?.id === product.id
+        ? <ProductForm key={product.id} product={product} onCancel={() => setEditing(null)} onSaved={saved} />
+        : <div className={product.hidden ? "product-row is-hidden" : "product-row"} key={product.id}>
+          <div className="product-thumb">{product.photo_url ? <img src={product.photo_url} alt="" /> : null}</div>
+          <div className="product-info">
+            <strong>{product.name}</strong>
+            <span>{pesos.format(product.price)}{product.has_sauce ? " · pregunta salsa" : ""}</span>
+            <div className="product-badges">
+              {product.sold_out ? <em className="badge sold">Agotado</em> : <em className="badge ok">Disponible</em>}
+              {product.hidden ? <em className="badge">Oculto</em> : null}
+            </div>
+          </div>
+          <div className="product-actions">
+            <button className={product.sold_out ? "sold-out-button active" : "sold-out-button"} disabled={busy === product.id} onClick={() => patch(product, { sold_out: !product.sold_out })}>{product.sold_out ? "✅ Hay stock" : "🛑 Agotado"}</button>
+            <button className="refresh-button" disabled={busy === product.id} onClick={() => patch(product, { hidden: !product.hidden })}>{product.hidden ? "👁️ Mostrar" : "🙈 Ocultar"}</button>
+            <button className="refresh-button" disabled={Boolean(editing)} onClick={() => setEditing(product)}>✏️ Editar</button>
+            <button className="refresh-button danger" disabled={busy === product.id} onClick={() => remove(product)}>🗑️</button>
+          </div>
+        </div>)}
+    </div>
+  </section>;
+}
+
+function ProductForm({ product, sortOrder, onCancel, onSaved }) {
+  const [form, setForm] = useState(() => ({
+    name: product?.name ?? "",
+    description: product?.description ?? "",
+    price: product?.price ?? "",
+    has_sauce: product?.has_sauce ?? false,
+  }));
+  const [file, setFile] = useState(null);
+  const [preview, setPreview] = useState(product?.photo_url ?? null);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  // La vista previa de una foto recién elegida es un blob local que hay que soltar.
+  useEffect(() => {
+    if (!file) return;
+    const url = URL.createObjectURL(file);
+    setPreview(url);
+    return () => URL.revokeObjectURL(url);
+  }, [file]);
+
+  function update(field, value) { setForm((current) => ({ ...current, [field]: value })); }
+
+  async function submit(event) {
+    event.preventDefault();
+    const name = form.name.trim();
+    const price = Number(form.price);
+    if (name.length < 2) { setError("El nombre es muy corto."); return; }
+    if (!Number.isInteger(price) || price < 100) { setError("El precio tiene que ser un número entero, sin puntos (ej: 5990)."); return; }
+    if (!product && !file) { setError("Falta la foto del producto."); return; }
+
+    setSaving(true);
+    setError("");
+    let photoUrl = product?.photo_url ?? null;
+    try {
+      if (file) photoUrl = await uploadPhoto(file);
+    } catch {
+      setSaving(false);
+      setError("No pudimos subir la foto. Prueba con otra en JPG o PNG.");
+      return;
+    }
+
+    const values = { name, description: form.description.trim(), price, has_sauce: form.has_sauce, photo_url: photoUrl, updated_at: new Date().toISOString() };
+    const { error: requestError } = product
+      ? await supabase.from("products").update(values).eq("id", product.id)
+      : await supabase.from("products").insert({ ...values, sort_order: sortOrder });
+    setSaving(false);
+
+    if (requestError) {
+      // Si falló el guardado, la foto recién subida quedaría huérfana.
+      if (file) removePhoto(photoUrl);
+      setError(requestError.code === "23505" ? "Ya existe un producto con ese nombre." : "No pudimos guardar el producto. Inténtalo otra vez.");
+      return;
+    }
+    if (file && product?.photo_url) removePhoto(product.photo_url);
+    onSaved();
+  }
+
+  return <form className="product-form" onSubmit={submit}>
+    <h3>{product ? `Editar ${product.name}` : "Nuevo producto"}</h3>
+    <div className="product-form-grid">
+      <label className="product-photo-field">
+        <span className="product-photo-preview">{preview ? <img src={preview} alt="" /> : <b>📷 Elegir foto</b>}</span>
+        <input type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => setFile(event.target.files?.[0] ?? null)} />
+        <small>{preview ? "Toca la foto para cambiarla" : "JPG o PNG"}</small>
+      </label>
+      <div className="product-fields">
+        <label>Nombre<input required maxLength={80} value={form.name} onChange={(event) => update("name", event.target.value)} placeholder="Ej: Tteokbokki" /></label>
+        <label>Descripción<textarea maxLength={300} rows={3} value={form.description} onChange={(event) => update("description", event.target.value)} placeholder="Qué trae, para cuántas personas…" /></label>
+        <label>Precio<input required type="number" min="100" step="1" inputMode="numeric" value={form.price} onChange={(event) => update("price", event.target.value)} placeholder="5990" /></label>
+        <label className="product-check"><input type="checkbox" checked={form.has_sauce} onChange={(event) => update("has_sauce", event.target.checked)} /> Preguntar cómo quiere la salsa (con, sin o aparte)</label>
+      </div>
+    </div>
+    {error ? <p className="admin-error">{error}</p> : null}
+    <div className="product-form-actions">
+      <button type="button" className="refresh-button" onClick={onCancel} disabled={saving}>Cancelar</button>
+      <button className="login-button" disabled={saving}>{saving ? "Guardando…" : product ? "Guardar cambios" : "Agregar al menú"}</button>
+    </div>
+  </form>;
 }
 
 function OrderDetail({ order, onStatusChange }) {

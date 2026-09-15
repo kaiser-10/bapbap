@@ -110,6 +110,10 @@ main>section{scroll-margin-top:98px}
 .card-body{padding:24px 24px 26px}
 .card-body h3{font-size:1.75rem;margin-bottom:9px}
 .card-body p{margin:0 0 20px;line-height:1.5;color:rgba(23,13,12,.72);font-size:.94rem}
+.menu-status{margin:0 0 30px;color:rgba(23,13,12,.72)}
+.sold-out-stamp{position:absolute;left:14px;bottom:14px;background:var(--red);color:var(--cream);font-weight:700;font-size:.74rem;letter-spacing:.14em;text-transform:uppercase;padding:7px 11px}
+.card.is-sold-out .card-photo img{filter:grayscale(.85);opacity:.7}
+.card.is-sold-out .card-body h3,.card.is-sold-out .card-body p{opacity:.6}
 .card-add{width:100%;border:2px solid var(--ink);background:var(--ink);color:var(--cream);font-weight:700;padding:14px;
   display:flex;align-items:center;justify-content:center;gap:12px;transition:background .18s,color .18s}
 .card-add:hover{background:var(--gold);color:var(--ink)}
