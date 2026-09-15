@@ -295,7 +295,7 @@ function Admin() {
   }
 
   if (!supabase) return <main className="admin-shell"><p>Falta configurar Supabase.</p></main>;
-  if (!session) return <Login onSuccess={() => setError("")} />;
+  if (!session) return <Login />;
 
   const visibleOrders = filter === "todos" ? orders : orders.filter((order) => order.status === filter);
   const newCount = orders.filter((order) => order.status === "nuevo").length;
