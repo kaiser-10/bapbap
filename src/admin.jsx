@@ -43,15 +43,22 @@ function whatsappLink(order) {
   return `https://wa.me/${number}?text=${encodeURIComponent(build(order.customer_name, order.order_number))}`;
 }
 
-// Horario de atención. Debe coincidir con BLOCKS en src/App.jsx.
-const BLOCKS = [
-  { weekday: "Fri", label: "Viernes", openHour: 17, closeHour: 20 },
-  { weekday: "Sat", label: "Sábado", openHour: 12, closeHour: 20 },
-  { weekday: "Sun", label: "Domingo", openHour: 12, closeHour: 17 },
-];
-// Debe coincidir con SLOT_HOURS en src/App.jsx y con las filas de slot_limits.
+// Debe coincidir con SLOT_HOURS en src/App.jsx y en create-payment.
 const SLOT_HOURS = 2;
 const WEEKDAY_INDEX = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+const WEEKDAY_ORDER = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+const WEEKDAY_LABELS = { Mon: "Lunes", Tue: "Martes", Wed: "Miércoles", Thu: "Jueves", Fri: "Viernes", Sat: "Sábado", Sun: "Domingo" };
+
+// El horario vive en la tabla opening_hours: una fila por día que se atiende.
+function toBlocks(rows) {
+  return rows
+    .map((row) => ({ weekday: row.weekday, label: WEEKDAY_LABELS[row.weekday], openHour: row.open_hour, closeHour: row.close_hour }))
+    .sort((a, b) => WEEKDAY_ORDER.indexOf(a.weekday) - WEEKDAY_ORDER.indexOf(b.weekday));
+}
+
+function isClosedDate(date, closures) {
+  return closures.some((range) => date >= range.date_from && date <= range.date_to);
+}
 
 function blockSlots(block) {
   const slots = [];
@@ -82,10 +89,16 @@ function addDays(dateStr, days) {
   return date.toISOString().slice(0, 10);
 }
 
-function nextOccurrence(block, now) {
+// Igual que en la tienda: un día que cae en un cierre se corre a la semana
+// siguiente, así los cupos muestran la fecha que de verdad se va a vender.
+function nextOccurrence(block, now, closures) {
   const diff = (WEEKDAY_INDEX[block.weekday] - WEEKDAY_INDEX[now.weekday] + 7) % 7;
   const alreadyClosed = diff === 0 && now.hour >= block.closeHour;
-  return addDays(now.date, alreadyClosed ? 7 : diff);
+  let date = addDays(now.date, alreadyClosed ? 7 : diff);
+  for (let week = 0; week < 53 && isClosedDate(date, closures); week += 1) {
+    date = addDays(date, 7);
+  }
+  return date;
 }
 
 // Encabeza cada jornada de entrega. Se arma sobre mediodía UTC para que la
@@ -224,6 +237,7 @@ function Admin() {
   // panel es para despachar pedidos, no para configurarlos.
   const [showSlots, setShowSlots] = useState(false);
   const [showProducts, setShowProducts] = useState(false);
+  const [showSchedule, setShowSchedule] = useState(false);
   // Sube cada vez que se recargan los pedidos, para que los cupos tomados se
   // actualicen con el mismo aviso de realtime y no haya que recargar la página.
   const [ordersVersion, setOrdersVersion] = useState(0);
@@ -291,8 +305,9 @@ function Admin() {
   return <main className="admin-shell">
     {unseen > 0 && <button className="new-order-alert" onClick={() => setUnseen(0)}>🔔 {unseen === 1 ? "1 pedido nuevo" : `${unseen} pedidos nuevos`} · toca para silenciar</button>}
     <header className="admin-header"><a className="brand" href="/"><strong>bapbap</strong></a><div><span className="admin-clock">{formatTime(now)}</span><span className="admin-email">{session.user.email}</span><button className="link-button" onClick={() => supabase.auth.signOut()}>Cerrar sesión</button></div></header>
-    <section className="admin-intro"><div><p className="eyebrow">ADMINISTRACIÓN</p><h1>Pedidos</h1><p>Revisa, confirma y prepara cada pedido desde un solo lugar.</p></div><div className="admin-actions"><button className={showProducts ? "refresh-button active" : "refresh-button"} onClick={() => setShowProducts((open) => !open)}>🍗 Productos</button><button className={showSlots ? "refresh-button active" : "refresh-button"} onClick={() => setShowSlots((open) => !open)}>🗓️ Cupos</button><button className="refresh-button" onClick={playAlert}>🔔 Probar sonido</button><button className="refresh-button" onClick={() => loadOrders()}>↻ Actualizar</button></div></section>
+    <section className="admin-intro"><div><p className="eyebrow">ADMINISTRACIÓN</p><h1>Pedidos</h1><p>Revisa, confirma y prepara cada pedido desde un solo lugar.</p></div><div className="admin-actions"><button className={showProducts ? "refresh-button active" : "refresh-button"} onClick={() => setShowProducts((open) => !open)}>🍗 Productos</button><button className={showSchedule ? "refresh-button active" : "refresh-button"} onClick={() => setShowSchedule((open) => !open)}>🕒 Horario y despacho</button><button className={showSlots ? "refresh-button active" : "refresh-button"} onClick={() => setShowSlots((open) => !open)}>🗓️ Cupos</button><button className="refresh-button" onClick={playAlert}>🔔 Probar sonido</button><button className="refresh-button" onClick={() => loadOrders()}>↻ Actualizar</button></div></section>
     {showProducts && <Products onError={setError} />}
+    {showSchedule && <section className="settings-panel"><OpeningHours onError={setError} /><Closures onError={setError} /><Comunas onError={setError} /></section>}
     {showSlots && <SlotLimits onError={setError} ordersVersion={ordersVersion} />}
     <section className="admin-stats"><span>Hoy <strong>{pesos.format(salesToday)}</strong></span><span>Semana <strong>{pesos.format(salesWeek)}</strong></span><span>Total <strong>{orders.length}</strong></span><span>Nuevos <strong className="highlight">{newCount}</strong></span><span>Preparando <strong>{orders.filter((order) => order.status === "preparando").length}</strong></span></section>
     <div className="filters">{["todos", "nuevo", "confirmado", "preparando", "enviado", "entregado"].map((item) => <button className={filter === item ? "active" : ""} onClick={() => setFilter(item)} key={item}>{item === "todos" ? "Todos" : statusLabels[item]}</button>)}</div>
@@ -313,6 +328,7 @@ function Login() {
 // 0 cierra esa ventana sin tocar el resto del día.
 function SlotLimits({ onError, ordersVersion }) {
   const [rows, setRows] = useState(null);
+  const [schedule, setSchedule] = useState({ blocks: [], closures: [] });
   const [usage, setUsage] = useState(new Map());
   const [saving, setSaving] = useState("");
 
@@ -322,14 +338,19 @@ function SlotLimits({ onError, ordersVersion }) {
     setUsage(new Map((data ?? []).map((row) => [`${row.slot_date}|${row.start_hour}`, row.taken])));
   }, []);
 
-  // Los topes se leen al abrir el panel: solo cambian desde acá.
+  // Los topes y el horario se leen al abrir el panel: solo cambian desde acá.
   useEffect(() => {
     let active = true;
     (async () => {
-      const { data, error } = await supabase.from("slot_limits").select("weekday, start_hour, end_hour, capacity");
+      const [limits, hours, closures] = await Promise.all([
+        supabase.from("slot_limits").select("weekday, start_hour, end_hour, capacity"),
+        supabase.from("opening_hours").select("weekday, open_hour, close_hour"),
+        supabase.from("closures").select("date_from, date_to"),
+      ]);
       if (!active) return;
-      if (error) { onError("No pudimos cargar los cupos por ventana."); return; }
-      setRows(data ?? []);
+      if (limits.error || hours.error || closures.error) { onError("No pudimos cargar los cupos por ventana."); return; }
+      setSchedule({ blocks: toBlocks(hours.data ?? []), closures: closures.data ?? [] });
+      setRows(limits.data ?? []);
     })();
     return () => { active = false; };
   }, [onError]);
@@ -367,9 +388,10 @@ function SlotLimits({ onError, ordersVersion }) {
 
   return <section className="slot-limits">
     <p className="slot-limits-note">Cuántos pedidos acepta cada ventana. Al llenarse deja de aparecer para reservar. En <strong>0</strong> la ventana queda cerrada.</p>
+    {schedule.blocks.length === 0 ? <p className="slot-limits-note">No hay días de atención configurados. Agrégalos en <strong>Horario y despacho</strong>.</p> : null}
     <div className="slot-days">
-      {BLOCKS.map((block) => {
-        const date = nextOccurrence(block, now);
+      {schedule.blocks.map((block) => {
+        const date = nextOccurrence(block, now, schedule.closures);
         return <div className="slot-day" key={block.weekday}>
           <h3>{block.label} <small>{formatShortDate(date)}</small></h3>
           {blockSlots(block).map((slot) => {
@@ -407,9 +429,9 @@ async function compressPhoto(file) {
   });
 }
 
-async function uploadPhoto(file) {
+async function uploadPhoto(file, folder = "") {
   const blob = await compressPhoto(file);
-  const path = `${crypto.randomUUID()}.jpg`;
+  const path = `${folder}${crypto.randomUUID()}.jpg`;
   const { error } = await supabase.storage.from(PHOTO_BUCKET).upload(path, blob, { contentType: "image/jpeg" });
   if (error) throw error;
   return supabase.storage.from(PHOTO_BUCKET).getPublicUrl(path).data.publicUrl;
@@ -579,6 +601,243 @@ function ProductForm({ product, sortOrder, onCancel, onSaved }) {
       <button className="login-button" disabled={saving}>{saving ? "Guardando…" : product ? "Guardar cambios" : "Agregar al menú"}</button>
     </div>
   </form>;
+}
+
+const HOUR_OPTIONS = Array.from({ length: 25 }, (_, hour) => hour);
+const formatHour = (hour) => `${String(hour).padStart(2, "0")}:00`;
+
+// Horario semanal. Se guarda todo junto con un botón: cambiar un día a medias
+// dejaría la tienda con un horario que nadie eligió.
+function OpeningHours({ onError }) {
+  const [days, setDays] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [savedAt, setSavedAt] = useState(null);
+
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      const { data, error } = await supabase.from("opening_hours").select("weekday, open_hour, close_hour");
+      if (!active) return;
+      if (error) { onError("No pudimos cargar el horario. ¿Corriste store-config.sql en Supabase?"); return; }
+      const byDay = new Map((data ?? []).map((row) => [row.weekday, row]));
+      setDays(WEEKDAY_ORDER.map((weekday) => {
+        const row = byDay.get(weekday);
+        return { weekday, open: Boolean(row), openHour: row?.open_hour ?? 12, closeHour: row?.close_hour ?? 20 };
+      }));
+    })();
+    return () => { active = false; };
+  }, [onError]);
+
+  function edit(weekday, changes) {
+    setSavedAt(null);
+    setDays((current) => current.map((day) => day.weekday === weekday ? { ...day, ...changes } : day));
+  }
+
+  async function save() {
+    const open = days.filter((day) => day.open);
+    const invalid = open.find((day) => Number(day.closeHour) <= Number(day.openHour));
+    if (invalid) { onError(`${WEEKDAY_LABELS[invalid.weekday]}: la hora de cierre tiene que ser después de la de apertura.`); return; }
+    if (!window.confirm("¿Guardar el horario? La tienda lo usa en menos de un minuto. Los pedidos que ya están pagados no se cancelan.")) return;
+
+    setSaving(true);
+    const now = new Date().toISOString();
+    const closedDays = days.filter((day) => !day.open).map((day) => day.weekday);
+    const openRows = open.map((day) => ({ weekday: day.weekday, open_hour: Number(day.openHour), close_hour: Number(day.closeHour), updated_at: now }));
+    // Cada ventana nueva necesita su fila de tope: sin ella la ventana no tendría
+    // límite. Las que ya existen no se tocan, para no pisar cupos configurados.
+    const windows = open.flatMap((day) => blockSlots({ openHour: Number(day.openHour), closeHour: Number(day.closeHour) })
+      .map((slot) => ({ weekday: day.weekday, start_hour: slot.startHour, end_hour: slot.endHour })));
+
+    const results = await Promise.all([
+      closedDays.length ? supabase.from("opening_hours").delete().in("weekday", closedDays) : { error: null },
+      openRows.length ? supabase.from("opening_hours").upsert(openRows, { onConflict: "weekday" }) : { error: null },
+      windows.length ? supabase.from("slot_limits").upsert(windows, { onConflict: "weekday,start_hour", ignoreDuplicates: true }) : { error: null },
+    ]);
+    setSaving(false);
+    if (results.some((result) => result.error)) { onError("No pudimos guardar el horario completo. Revísalo y guarda de nuevo."); return; }
+    onError("");
+    setSavedAt(new Date());
+  }
+
+  if (!days) return <p className="loading">Cargando horario…</p>;
+
+  return <div className="settings-block">
+    <h3>Horario de atención</h3>
+    <p className="slot-limits-note">Los días sin marcar quedan cerrados. Cada día se parte en ventanas de {SLOT_HOURS} horas para las preórdenes; los cupos de cada ventana se ajustan en <strong>Cupos</strong>.</p>
+    <div className="hours-editor">
+      {days.map((day) => <div className={day.open ? "hours-row" : "hours-row is-closed"} key={day.weekday}>
+        <label className="hours-day"><input type="checkbox" checked={day.open} onChange={(event) => edit(day.weekday, { open: event.target.checked })} /> {WEEKDAY_LABELS[day.weekday]}</label>
+        {day.open ? <div className="hours-range">
+          <select value={day.openHour} onChange={(event) => edit(day.weekday, { openHour: Number(event.target.value) })} aria-label={`Apertura ${WEEKDAY_LABELS[day.weekday]}`}>{HOUR_OPTIONS.slice(0, 24).map((hour) => <option key={hour} value={hour}>{formatHour(hour)}</option>)}</select>
+          <span>a</span>
+          <select value={day.closeHour} onChange={(event) => edit(day.weekday, { closeHour: Number(event.target.value) })} aria-label={`Cierre ${WEEKDAY_LABELS[day.weekday]}`}>{HOUR_OPTIONS.slice(1).map((hour) => <option key={hour} value={hour}>{formatHour(hour)}</option>)}</select>
+        </div> : <span className="hours-closed">Cerrado</span>}
+      </div>)}
+    </div>
+    <div className="settings-actions">
+      {savedAt ? <span className="settings-saved">✓ Guardado</span> : null}
+      <button className="login-button" onClick={save} disabled={saving}>{saving ? "Guardando…" : "Guardar horario"}</button>
+    </div>
+  </div>;
+}
+
+// Días puntuales sin atención (feriados, vacaciones). La tienda salta esas
+// fechas y ofrece la semana siguiente. El cierre desaparece solo al pasar.
+function Closures({ onError }) {
+  const [closures, setClosures] = useState(null);
+  const [form, setForm] = useState({ from: "", to: "", reason: "" });
+  const [file, setFile] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const today = getSantiagoNow().date;
+
+  const load = useCallback(async () => {
+    const { data, error } = await supabase.from("closures").select("*").gte("date_to", getSantiagoNow().date).order("date_from");
+    if (error) { onError("No pudimos cargar los cierres."); return; }
+    setClosures(data ?? []);
+  }, [onError]);
+
+  useEffect(() => { load(); }, [load]);
+
+  async function add(event) {
+    event.preventDefault();
+    const to = form.to || form.from;
+    if (to < form.from) { onError("La fecha de término tiene que ser igual o posterior a la de inicio."); return; }
+
+    // Cerrar no cancela lo que ya se vendió: mejor saberlo antes de confirmar.
+    const { count } = await supabase.from("orders").select("id", { count: "exact", head: true })
+      .eq("payment_status", "pagado").neq("status", "cancelado").gte("reserved_date", form.from).lte("reserved_date", to);
+    const warning = count ? `\n\nOjo: ya hay ${count} ${count === 1 ? "pedido pagado" : "pedidos pagados"} para esas fechas. No se cancelan solos, hay que avisarles.` : "";
+    if (!window.confirm(`¿Cerrar ${form.from === to ? `el ${formatShortDate(form.from)}` : `del ${formatShortDate(form.from)} al ${formatShortDate(to)}`}? Esos días no se podrá pedir.${warning}`)) return;
+
+    setSaving(true);
+    let noticeUrl = null;
+    try {
+      if (file) noticeUrl = await uploadPhoto(file, "avisos/");
+    } catch {
+      setSaving(false);
+      onError("No pudimos subir la imagen del aviso. Prueba con otra en JPG o PNG.");
+      return;
+    }
+    const { error } = await supabase.from("closures").insert({ date_from: form.from, date_to: to, reason: form.reason.trim(), notice_url: noticeUrl });
+    setSaving(false);
+    if (error) {
+      if (noticeUrl) removePhoto(noticeUrl);
+      onError("No pudimos guardar el cierre. Inténtalo otra vez.");
+      return;
+    }
+    onError("");
+    setForm({ from: "", to: "", reason: "" });
+    setFile(null);
+    load();
+  }
+
+  async function remove(closure) {
+    if (!window.confirm("¿Quitar este cierre? Esos días vuelven a estar disponibles para pedir.")) return;
+    const { error } = await supabase.from("closures").delete().eq("id", closure.id);
+    if (error) { onError("No pudimos quitar el cierre."); return; }
+    onError("");
+    removePhoto(closure.notice_url);
+    setClosures((current) => current.filter((item) => item.id !== closure.id));
+  }
+
+  if (!closures) return <p className="loading">Cargando cierres…</p>;
+
+  return <div className="settings-block">
+    <h3>Cierres y feriados</h3>
+    <p className="slot-limits-note">Días en que no se atiende aunque estén en el horario. Si subes una imagen, se muestra en la tienda como aviso hasta el último día del cierre.</p>
+    {closures.length === 0 ? <p className="settings-empty">No hay cierres programados.</p> : <div className="closure-list">
+      {closures.map((closure) => <div className="closure-row" key={closure.id}>
+        {closure.notice_url ? <img src={closure.notice_url} alt="" /> : <span className="closure-thumb-empty" />}
+        <div>
+          <strong>{closure.date_from === closure.date_to ? formatGroupDate(closure.date_from) : `${formatShortDate(closure.date_from)} – ${formatShortDate(closure.date_to)}`}</strong>
+          <span>{closure.reason || "Sin motivo"}{closure.date_from <= today ? " · en curso" : ""}</span>
+        </div>
+        <button className="refresh-button danger" onClick={() => remove(closure)}>Quitar</button>
+      </div>)}
+    </div>}
+    <form className="closure-form" onSubmit={add}>
+      <label>Desde<input type="date" required min={today} value={form.from} onChange={(event) => setForm({ ...form, from: event.target.value })} /></label>
+      <label>Hasta<input type="date" min={form.from || today} value={form.to} onChange={(event) => setForm({ ...form, to: event.target.value })} /></label>
+      <label>Motivo<input maxLength={80} value={form.reason} onChange={(event) => setForm({ ...form, reason: event.target.value })} placeholder="Ej: Año Nuevo" /></label>
+      <label>Imagen de aviso (opcional)<input type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => setFile(event.target.files?.[0] ?? null)} /></label>
+      <button className="login-button" disabled={saving}>{saving ? "Guardando…" : "Agregar cierre"}</button>
+    </form>
+  </div>;
+}
+
+// Comunas con despacho. La tienda las agrupa por tarifa.
+function Comunas({ onError }) {
+  const [comunas, setComunas] = useState(null);
+  const [form, setForm] = useState({ name: "", fee: "" });
+  const [saving, setSaving] = useState("");
+
+  const load = useCallback(async () => {
+    const { data, error } = await supabase.from("comunas").select("name, fee, sort_order").order("sort_order").order("name");
+    if (error) { onError("No pudimos cargar las comunas."); return; }
+    setComunas(data ?? []);
+  }, [onError]);
+
+  useEffect(() => { load(); }, [load]);
+
+  function edit(name, value) {
+    setComunas((current) => current.map((comuna) => comuna.name === name ? { ...comuna, fee: value } : comuna));
+  }
+
+  // Se guarda al salir del campo, como los cupos: escribir "4490" no debe pasar
+  // primero por un despacho de $4.
+  async function saveFee(comuna) {
+    const fee = Number(comuna.fee);
+    if (!Number.isInteger(fee) || fee < 0) { onError(`El despacho de ${comuna.name} tiene que ser un número entero, sin puntos.`); return; }
+    setSaving(comuna.name);
+    const { error } = await supabase.from("comunas").update({ fee, updated_at: new Date().toISOString() }).eq("name", comuna.name);
+    setSaving("");
+    if (error) { onError("No pudimos guardar el despacho. Inténtalo otra vez."); return; }
+    onError("");
+    edit(comuna.name, fee);
+  }
+
+  async function add(event) {
+    event.preventDefault();
+    const name = form.name.trim();
+    const fee = Number(form.fee);
+    if (name.length < 2) { onError("El nombre de la comuna es muy corto."); return; }
+    if (!Number.isInteger(fee) || fee < 0) { onError("El despacho tiene que ser un número entero, sin puntos (ej: 2990)."); return; }
+    const sortOrder = comunas.reduce((max, comuna) => Math.max(max, comuna.sort_order), 0) + 10;
+    setSaving("nueva");
+    const { error } = await supabase.from("comunas").insert({ name, fee, sort_order: sortOrder });
+    setSaving("");
+    if (error) { onError(error.code === "23505" ? "Esa comuna ya está en la lista." : "No pudimos agregar la comuna."); return; }
+    onError("");
+    setForm({ name: "", fee: "" });
+    load();
+  }
+
+  async function remove(comuna) {
+    if (!window.confirm(`¿Dejar de despachar a ${comuna.name}? Desaparece de la lista de la tienda. Los pedidos anteriores no cambian.`)) return;
+    const { error } = await supabase.from("comunas").delete().eq("name", comuna.name);
+    if (error) { onError("No pudimos quitar la comuna."); return; }
+    onError("");
+    setComunas((current) => current.filter((item) => item.name !== comuna.name));
+  }
+
+  if (!comunas) return <p className="loading">Cargando comunas…</p>;
+
+  return <div className="settings-block">
+    <h3>Comunas y despacho</h3>
+    <p className="slot-limits-note">Solo se despacha a las comunas de esta lista. El valor se guarda al salir del campo.</p>
+    <div className="comuna-list">
+      {comunas.map((comuna) => <div className="comuna-row" key={comuna.name}>
+        <span>{comuna.name}</span>
+        <span className="comuna-fee">$<input type="number" min="0" step="1" inputMode="numeric" value={comuna.fee} disabled={saving === comuna.name} onChange={(event) => edit(comuna.name, event.target.value)} onBlur={() => saveFee(comuna)} aria-label={`Despacho ${comuna.name}`} /></span>
+        <button type="button" className="refresh-button danger" onClick={() => remove(comuna)} aria-label={`Quitar ${comuna.name}`}>🗑️</button>
+      </div>)}
+    </div>
+    <form className="comuna-form" onSubmit={add}>
+      <label>Nueva comuna<input required maxLength={60} value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="Ej: Pirque" /></label>
+      <label>Despacho<input required type="number" min="0" step="1" inputMode="numeric" value={form.fee} onChange={(event) => setForm({ ...form, fee: event.target.value })} placeholder="2990" /></label>
+      <button className="login-button" disabled={saving === "nueva"}>{saving === "nueva" ? "Agregando…" : "Agregar"}</button>
+    </form>
+  </div>;
 }
 
 function OrderDetail({ order, onStatusChange }) {

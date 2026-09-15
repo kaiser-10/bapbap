@@ -197,6 +197,10 @@ main>section{scroll-margin-top:98px}
 .cart-item{display:flex;justify-content:space-between;gap:15px;padding-bottom:19px;border-bottom:1px solid var(--line)}
 .cart-item p{font-size:.8rem;line-height:1.4;margin:6px 0}
 .cart-item b{font-size:.88rem;color:var(--red)}
+.cart-item.is-unavailable strong,.cart-item.is-unavailable b{opacity:.55}
+.cart-item .cart-item-warning{color:var(--red);font-weight:700}
+.quantity button:disabled{opacity:.35;cursor:not-allowed}
+.cart-blocked{margin:0 0 12px;color:var(--red);font-weight:700;font-size:.88rem}
 .quantity{display:flex;align-items:center;gap:10px}
 .quantity button{border:1px solid var(--line);background:transparent;width:27px;height:27px}
 .checkout-subtotal{display:flex;justify-content:space-between;padding-top:14px;font-size:.85rem;color:rgba(23,13,12,.7)}

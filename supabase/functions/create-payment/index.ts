@@ -5,59 +5,59 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-// Los productos y sus precios viven en la tabla products (se editan desde el
-// panel). Preferencia de servido, sin costo. Debe coincidir con SAUCE_CHOICES en src/App.jsx.
+// Productos, horario, cierres y comunas viven en la base y se editan desde el
+// panel. Lo que queda acá cambia muy de vez en cuando.
+
+// Preferencia de servido, sin costo. Debe coincidir con SAUCE_CHOICES en src/App.jsx.
 const SAUCE_CHOICES = new Set(["Con salsa", "Sin salsa", "Salsa aparte"]);
 const RATE_LIMIT_WINDOW_MS = 60_000;
 const RATE_LIMIT_MAX = 8;
-// El despacho depende de la comuna. Debe coincidir con COMUNA_GROUPS en src/App.jsx.
-const COMUNA_FEES = new Map([
-  ["Puente Alto", 2990],
-  ["San Bernardo", 2990],
-  ["El Bosque", 2990],
-  ["La Pintana", 2990],
-  ["La Florida", 4490],
-  ["La Granja", 4490],
-  ["San Ramón", 4490],
-  ["La Cisterna", 4490],
-]);
 
-// Horario de atención. Debe coincidir con BLOCKS en src/App.jsx.
-const BLOCKS = [
-  { weekday: "Fri", label: "Viernes", openHour: 17, closeHour: 20 },
-  { weekday: "Sat", label: "Sábado", openHour: 12, closeHour: 20 },
-  { weekday: "Sun", label: "Domingo", openHour: 12, closeHour: 17 },
-];
 // Cada día se parte en ventanas de entrega de este largo. Debe coincidir con
-// SLOT_HOURS en src/App.jsx y con las filas sembradas en slot_limits.
+// SLOT_HOURS en src/App.jsx y src/admin.jsx.
 const SLOT_HOURS = 2;
 // Lo que se le promete al cliente que pide al momento. Debe coincidir con src/App.jsx.
 const ASAP_MIN = 45;
 const ASAP_MAX = 55;
 const WEEKDAY_INDEX: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
-
-// Pausa puntual: no se ofrece ninguna ventana anterior a esta fecha (YYYY-MM-DD,
-// hora de Santiago). Debe coincidir con REOPEN_DATE en src/App.jsx.
-const REOPEN_DATE = "2026-08-22";
-
-// Fines de semana sueltos en que no se atiende (feriados, vacaciones). A
-// diferencia de REOPEN_DATE, que esconde todo lo anterior a una fecha, esto
-// tapa solo el rango: cierra el fin de semana que viene sin tocar el de esta
-// semana. Ambos extremos incluidos. Debe coincidir con CLOSED_RANGES en
-// src/App.jsx.
-const CLOSED_RANGES = [
-  { from: "2026-09-18", to: "2026-09-20", reason: "Fiestas Patrias" },
-];
-
-function isClosedDate(date: string) {
-  return CLOSED_RANGES.some((range) => date >= range.from && date <= range.to);
-}
+const WEEKDAY_LABELS: Record<string, string> = { Mon: "Lunes", Tue: "Martes", Wed: "Miércoles", Thu: "Jueves", Fri: "Viernes", Sat: "Sábado", Sun: "Domingo" };
 
 type Now = { date: string; weekday: string; hour: number };
 type Block = { weekday: string; label: string; openHour: number; closeHour: number };
+type Closure = { from: string; to: string };
 type Slot = { weekday: string; label: string; date: string; startHour: number; endHour: number };
 type ValidatedItem = { product: string; sauce: string | null; quantity: number; unit_price: number };
 type ProductRow = { id: string; name: string; price: number; has_sauce: boolean; sold_out: boolean; hidden: boolean };
+type Config = { blocks: Block[]; closures: Closure[]; comunaFees: Map<string, number>; catalog: ProductRow[] };
+
+// Sin horario, comunas ni precios no hay contra qué validar el pedido, así que
+// si la lectura falla se corta: la alternativa sería cobrar a ciegas.
+async function loadConfig(database: ReturnType<typeof createClient>): Promise<Config> {
+  const [hours, closures, comunas, products] = await Promise.all([
+    database.from("opening_hours").select("weekday, open_hour, close_hour"),
+    database.from("closures").select("date_from, date_to"),
+    database.from("comunas").select("name, fee"),
+    database.from("products").select("id, name, price, has_sauce, sold_out, hidden"),
+  ]);
+  for (const result of [hours, closures, comunas, products]) {
+    if (result.error) throw result.error;
+  }
+  return {
+    blocks: (hours.data ?? []).map((row) => ({
+      weekday: row.weekday as string,
+      label: WEEKDAY_LABELS[row.weekday as string],
+      openHour: row.open_hour as number,
+      closeHour: row.close_hour as number,
+    })),
+    closures: (closures.data ?? []).map((row) => ({ from: row.date_from as string, to: row.date_to as string })),
+    comunaFees: new Map((comunas.data ?? []).map((row) => [row.name as string, row.fee as number])),
+    catalog: (products.data ?? []) as ProductRow[],
+  };
+}
+
+function isClosedDate(date: string, closures: Closure[]) {
+  return closures.some((range) => date >= range.from && date <= range.to);
+}
 
 function getSantiagoNow(date = new Date()): Now {
   const parts = new Intl.DateTimeFormat("en-US", {
@@ -91,7 +91,7 @@ function formatBlockDate(dateStr: string) {
 }
 
 // La última ventana del día se recorta al cierre, así nunca se ofrece una hora
-// en la que ya no hay nadie: el viernes cierra con 19-20 y el domingo con 16-17.
+// en la que ya no hay nadie: si se cierra a las 20, la última es 19-20.
 function blockSlots(block: Block) {
   const slots: { startHour: number; endHour: number }[] = [];
   for (let start = block.openHour; start < block.closeHour; start += SLOT_HOURS) {
@@ -100,13 +100,13 @@ function blockSlots(block: Block) {
   return slots;
 }
 
-function nextOccurrence(block: Block, now: Now) {
+function nextOccurrence(block: Block, now: Now, closures: Closure[]) {
   const diff = (WEEKDAY_INDEX[block.weekday] - WEEKDAY_INDEX[now.weekday] + 7) % 7;
   const alreadyClosed = diff === 0 && now.hour >= block.closeHour;
   let date = addDays(now.date, alreadyClosed ? 7 : diff);
   // Si ese día cae en un cierre, se salta a la semana siguiente, igual que en
   // la tienda: si no, el bloque desaparecería en vez de correrse.
-  for (let week = 0; week < 8 && isClosedDate(date); week += 1) {
+  for (let week = 0; week < 53 && isClosedDate(date, closures); week += 1) {
     date = addDays(date, 7);
   }
   return date;
@@ -114,21 +114,21 @@ function nextOccurrence(block: Block, now: Now) {
 
 // Ventanas que todavía se pueden preordenar. De hoy solo quedan las que aún no
 // empiezan: para la que está en curso existe el pedido al momento.
-function getUpcomingSlots(now: Now): Slot[] {
-  return BLOCKS.flatMap((block) => {
-    const date = nextOccurrence(block, now);
+function getUpcomingSlots(now: Now, config: Config): Slot[] {
+  return config.blocks.flatMap((block) => {
+    const date = nextOccurrence(block, now, config.closures);
     return blockSlots(block).map((slot) => ({ ...slot, weekday: block.weekday, label: block.label, date }));
   })
-    .filter((slot) => slot.date >= REOPEN_DATE)
+    .filter((slot) => !isClosedDate(slot.date, config.closures))
     .filter((slot) => slot.date > now.date || slot.startHour > now.hour)
     .sort((a, b) => a.date.localeCompare(b.date) || a.startHour - b.startHour);
 }
 
 // La ventana en curso, si la tienda está abierta en este momento. Los pedidos
 // al momento también ocupan cupo: para la cocina pesan igual que una preorden.
-function getLiveSlot(now: Now): Slot | null {
-  if (now.date < REOPEN_DATE || isClosedDate(now.date)) return null;
-  const block = BLOCKS.find((item) => item.weekday === now.weekday && now.hour >= item.openHour && now.hour < item.closeHour);
+function getLiveSlot(now: Now, config: Config): Slot | null {
+  if (isClosedDate(now.date, config.closures)) return null;
+  const block = config.blocks.find((item) => item.weekday === now.weekday && now.hour >= item.openHour && now.hour < item.closeHour);
   if (!block) return null;
   const slot = blockSlots(block).find((item) => now.hour >= item.startHour && now.hour < item.endHour);
   return slot ? { ...slot, weekday: block.weekday, label: block.label, date: now.date } : null;
@@ -152,19 +152,6 @@ function readRequest(body: { order?: { mode?: string; date?: string; startHour?:
     };
   }
   return { mode: "preorden", date: null, startHour: null, legacyWeekday: body.reservation?.weekday ?? null };
-}
-
-// El panel de admin marca "agotado" guardando la fecha del bloque sin stock.
-// Si la consulta falla, seguimos vendiendo: un error de lectura no debe cortar
-// las ventas.
-async function getSoldOutDate(database: ReturnType<typeof createClient>) {
-  try {
-    const { data, error } = await database.from("store_settings").select("sold_out_on").maybeSingle();
-    if (error) return null;
-    return (data?.sold_out_on as string | null) ?? null;
-  } catch {
-    return null;
-  }
 }
 
 function response(body: unknown, status = 200) {
@@ -206,18 +193,18 @@ Deno.serve(async (request) => {
     const body = await request.json();
     const now = getSantiagoNow();
     const requested = readRequest(body);
-    const soldOutDate = await getSoldOutDate(database);
+    const config = await loadConfig(database);
 
     // La ventana nunca se toma del cliente: se recalcula acá y solo se acepta si
     // coincide con una que el servidor ofrecería en este mismo momento.
     let slot: Slot | null;
     if (requested.mode === "ahora") {
-      slot = getLiveSlot(now);
+      slot = getLiveSlot(now, config);
       if (!slot) {
         return response({ error: "Ahora mismo no estamos recibiendo pedidos al momento. Puedes dejar una preorden." }, 400);
       }
     } else {
-      const upcoming = getUpcomingSlots(now);
+      const upcoming = getUpcomingSlots(now, config);
       slot = requested.legacyWeekday
         ? upcoming.find((item) => item.weekday === requested.legacyWeekday) ?? null
         : upcoming.find((item) => item.date === requested.date && item.startHour === requested.startHour) ?? null;
@@ -225,41 +212,30 @@ Deno.serve(async (request) => {
         return response({ error: "Elige una ventana de entrega disponible." }, 400);
       }
     }
-    if (soldOutDate && slot.date === soldOutDate) {
-      return response({ error: "Ese día se agotó. Elige otra ventana, por favor." }, 400);
-    }
 
     const customer = body.customer ?? {};
     const submittedItems = Array.isArray(body.items) ? body.items : [];
     if (
       typeof customer.name !== "string" || customer.name.trim().length < 2 || customer.name.trim().length > 100 ||
       typeof customer.phone !== "string" || customer.phone.trim().length < 6 || customer.phone.trim().length > 30 ||
-      !COMUNA_FEES.has(customer.comuna) ||
+      !config.comunaFees.has(customer.comuna) ||
       typeof customer.address !== "string" || customer.address.trim().length < 5 || customer.address.trim().length > 200 ||
       submittedItems.length === 0 || submittedItems.length > 20
     ) {
       return response({ error: "Los datos del pedido no son válidos." }, 400);
     }
 
-    // El precio nunca se toma del cliente. Si el menú no se puede leer no hay
-    // contra qué cobrar, así que acá sí se corta (a diferencia de los cupos).
-    const { data: productRows, error: productsError } = await database
-      .from("products")
-      .select("id, name, price, has_sauce, sold_out, hidden");
-    if (productsError) throw productsError;
-    const catalog = (productRows ?? []) as ProductRow[];
-
     // Un producto que no calza es culpa del pedido, no del servidor, así que
     // devuelve 400 y no 500: el 500 esconde el problema entre los errores
     // reales en los logs. Y el mensaje pide actualizar la página porque eso es
     // justo lo que lo arregla cuando la tienda va por delante del servidor.
     // Se busca por id y, si no viene, por nombre: una pestaña abierta desde
-    // antes del cambio manda solo el nombre.
+    // antes de que existiera el id manda solo el nombre.
     const validatedItems: ValidatedItem[] = [];
     for (const item of submittedItems as { productId?: string; product?: string; sauce?: string | null; quantity?: number }[]) {
       const productInfo = item.productId
-        ? catalog.find((row) => row.id === item.productId)
-        : catalog.find((row) => row.name === item.product);
+        ? config.catalog.find((row) => row.id === item.productId)
+        : config.catalog.find((row) => row.name === item.product);
       const quantity = Number(item.quantity);
       const sauceOk = productInfo ? (productInfo.has_sauce ? SAUCE_CHOICES.has(item.sauce ?? "") : true) : false;
       if (!productInfo || productInfo.hidden || !sauceOk || !Number.isInteger(quantity) || quantity < 1 || quantity > 10) {
@@ -272,7 +248,7 @@ Deno.serve(async (request) => {
       validatedItems.push({ product: productInfo.name, sauce: productInfo.has_sauce ? item.sauce ?? null : null, quantity, unit_price: productInfo.price });
     }
 
-    const deliveryFee = COMUNA_FEES.get(customer.comuna) ?? 0;
+    const deliveryFee = config.comunaFees.get(customer.comuna) ?? 0;
     const total = validatedItems.reduce((sum, item) => sum + item.unit_price * item.quantity, 0) + deliveryFee;
     const reservedLabel = orderLabel(slot, requested.mode);
 

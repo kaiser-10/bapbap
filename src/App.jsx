@@ -16,19 +16,9 @@ const cardReveal = {
 const SAUCE_CHOICES = ["Con salsa", "Sin salsa", "Salsa aparte"];
 const DEFAULT_SAUCE = SAUCE_CHOICES[0];
 
-const COMUNA_GROUPS = [
-  { fee: 2990, comunas: ["Puente Alto", "San Bernardo", "El Bosque", "La Pintana"] },
-  { fee: 4490, comunas: ["La Florida", "La Granja", "San Ramón", "La Cisterna"] },
-];
-const COMUNA_FEES = Object.fromEntries(COMUNA_GROUPS.flatMap((group) => group.comunas.map((comuna) => [comuna, group.fee])));
-const COMUNAS = Object.keys(COMUNA_FEES);
+// Productos, horario, cierres y comunas viven en la base y se editan desde el
+// panel. Lo que queda acá cambia muy de vez en cuando.
 
-// Horario de atención. Debe coincidir con BLOCKS en create-payment.
-const BLOCKS = [
-  { weekday: "Fri", label: "Viernes", openHour: 17, closeHour: 20 },
-  { weekday: "Sat", label: "Sábado", openHour: 12, closeHour: 20 },
-  { weekday: "Sun", label: "Domingo", openHour: 12, closeHour: 17 },
-];
 // Cada día se parte en ventanas de entrega de este largo, que es lo que el
 // cliente elige al preordenar. Debe coincidir con SLOT_HOURS en create-payment
 // y con las filas sembradas en la tabla slot_limits.
@@ -37,50 +27,17 @@ const SLOT_HOURS = 2;
 const ASAP_MIN = 45;
 const ASAP_MAX = 55;
 const WEEKDAY_INDEX = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+// La semana se muestra de lunes a domingo.
+const WEEKDAY_ORDER = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+const WEEKDAY_LABELS = { Mon: "Lunes", Tue: "Martes", Wed: "Miércoles", Thu: "Jueves", Fri: "Viernes", Sat: "Sábado", Sun: "Domingo" };
 
 // Frases de la marquesina. Sin horarios: esos viven en la sección de reserva.
-const TICKER = ["PIDE AHORA O PREORDENA", "HECHO AL MOMENTO", "NABO INCLUIDO", "DESPACHO DESDE $2.990"];
+// El despacho más barato se agrega al leer las comunas.
+const TICKER = ["PIDE AHORA O PREORDENA", "HECHO AL MOMENTO", "NABO INCLUIDO"];
 
-// Pausa puntual: no se ofrece ningún bloque anterior a esta fecha (formato
-// YYYY-MM-DD, hora de Santiago). Al llegar el día, vuelve solo; no hay que
-// tocar nada. Para reabrir antes, poner una fecha pasada. Debe coincidir con
-// create-payment.
-const REOPEN_DATE = "2026-08-22";
-const REOPEN_LABEL = "sábado 22 de agosto";
-
-// Fines de semana sueltos en que no se atiende (feriados, vacaciones). A
-// diferencia de REOPEN_DATE, que esconde todo lo anterior a una fecha, esto
-// tapa solo el rango y deja intacto lo de antes y lo de después: sirve para
-// cerrar el fin de semana que viene sin tocar el de esta semana. Ambos
-// extremos incluidos, hora de Santiago. Al pasar la última fecha vuelve solo.
-// Debe coincidir con CLOSED_RANGES en create-payment. `notice` es opcional: la
-// imagen que avisa el cierre, visible desde ya hasta el último día del rango.
-const CLOSED_RANGES = [
-  {
-    from: "2026-09-18",
-    to: "2026-09-20",
-    reason: "Fiestas Patrias",
-    notice: {
-      image: "/photos/aviso-fiestas-patrias.jpg",
-      alt: "18, 19 y 20 de septiembre no vamos a trabajar por las Fiestas Patrias, para que todos podamos disfrutar de este feriado. ¡Viva Chile!",
-    },
-  },
-];
-
-function isClosedDate(date) {
-  return CLOSED_RANGES.some((range) => date >= range.from && date <= range.to);
-}
-
-function activeNotices(now = getSantiagoNow()) {
-  return CLOSED_RANGES.filter((range) => range.notice && now.date <= range.to);
-}
-
-// La tienda puede quedarse sin ventanas por dos motivos distintos: la pausa
-// puntual de arriba, o que se hayan llenado todas. Solo en el primer caso se
-// sabe cuándo se vuelve; prometer una fecha en el segundo sería mentir, y
-// anunciar una fecha ya pasada deja el sitio con cara de abandonado.
-function pauseActive(now = getSantiagoNow()) {
-  return REOPEN_DATE > now.date;
+// Cierres puntuales (feriados, vacaciones), ambos extremos incluidos.
+function isClosedDate(date, closures) {
+  return closures.some((range) => date >= range.date_from && date <= range.date_to);
 }
 
 function getSantiagoNow(date = new Date()) {
@@ -115,7 +72,7 @@ function formatBlockDate(dateStr) {
 }
 
 // La última ventana del día se recorta al cierre, así nunca se ofrece una hora
-// en la que ya no hay nadie: el viernes cierra con 19-20 y el domingo con 16-17.
+// en la que ya no hay nadie: si se cierra a las 20, la última es 19-20.
 function blockSlots(block) {
   const slots = [];
   for (let start = block.openHour; start < block.closeHour; start += SLOT_HOURS) {
@@ -124,14 +81,14 @@ function blockSlots(block) {
   return slots;
 }
 
-function nextOccurrence(block, now) {
+function nextOccurrence(block, now, closures) {
   const diff = (WEEKDAY_INDEX[block.weekday] - WEEKDAY_INDEX[now.weekday] + 7) % 7;
   const alreadyClosed = diff === 0 && now.hour >= block.closeHour;
   let date = addDays(now.date, alreadyClosed ? 7 : diff);
   // Si ese día cae en un cierre, se salta a la semana siguiente. Sin esto el
-  // bloque desaparecería del todo y el fin de semana del feriado la tienda se
-  // vería muerta, en vez de ofrecer el fin de semana siguiente.
-  for (let week = 0; week < 8 && isClosedDate(date); week += 1) {
+  // bloque desaparecería del todo y la semana del feriado la tienda se vería
+  // muerta, en vez de ofrecer la semana siguiente.
+  for (let week = 0; week < 53 && isClosedDate(date, closures); week += 1) {
     date = addDays(date, 7);
   }
   return date;
@@ -139,21 +96,21 @@ function nextOccurrence(block, now) {
 
 // Ventanas que todavía se pueden preordenar. De hoy solo quedan las que aún no
 // empiezan: para la que está en curso existe el pedido al momento.
-function getUpcomingSlots(now = getSantiagoNow()) {
-  return BLOCKS.flatMap((block) => {
-    const date = nextOccurrence(block, now);
+function getUpcomingSlots(now, blocks, closures) {
+  return blocks.flatMap((block) => {
+    const date = nextOccurrence(block, now, closures);
     return blockSlots(block).map((slot) => ({ ...slot, weekday: block.weekday, label: block.label, date }));
   })
-    .filter((slot) => slot.date >= REOPEN_DATE)
+    .filter((slot) => !isClosedDate(slot.date, closures))
     .filter((slot) => slot.date > now.date || slot.startHour > now.hour)
     .sort((a, b) => a.date.localeCompare(b.date) || a.startHour - b.startHour);
 }
 
 // La ventana en curso, si la tienda está abierta ahora mismo. Los pedidos al
 // momento también ocupan cupo: para la cocina pesan igual que una preorden.
-function getLiveSlot(now = getSantiagoNow()) {
-  if (now.date < REOPEN_DATE || isClosedDate(now.date)) return null;
-  const block = BLOCKS.find((item) => item.weekday === now.weekday && now.hour >= item.openHour && now.hour < item.closeHour);
+function getLiveSlot(now, blocks, closures) {
+  if (isClosedDate(now.date, closures)) return null;
+  const block = blocks.find((item) => item.weekday === now.weekday && now.hour >= item.openHour && now.hour < item.closeHour);
   if (!block) return null;
   const slot = blockSlots(block).find((item) => now.hour >= item.startHour && now.hour < item.endHour);
   return slot ? { ...slot, weekday: block.weekday, label: block.label, date: now.date } : null;
@@ -161,37 +118,54 @@ function getLiveSlot(now = getSantiagoNow()) {
 
 const slotKey = (slot) => `${slot.date}|${slot.startHour}`;
 
-// Disponibilidad: el "agotado" del panel, el tope de cada ventana y cuántos
-// cupos van tomados. Todo vive en la base porque tiene que poder cambiar sin
-// volver a desplegar. Si algo falla se devuelve vacío y las ventanas quedan sin
-// tope: un problema de red nunca debe dejar la tienda cerrada por su cuenta.
-async function readAvailability() {
-  if (!supabase) return { soldOutDate: null, limits: [], load: [] };
-  try {
-    const [settings, limits, load] = await Promise.all([
-      supabase.from("store_settings").select("sold_out_on").maybeSingle(),
-      supabase.from("slot_limits").select("weekday, start_hour, capacity"),
-      supabase.rpc("slot_load"),
-    ]);
-    return {
-      soldOutDate: settings.error ? null : settings.data?.sold_out_on ?? null,
-      limits: limits.error ? [] : limits.data ?? [],
-      load: load.error ? [] : load.data ?? [],
-    };
-  } catch {
-    return { soldOutDate: null, limits: [], load: [] };
-  }
+const EMPTY_STORE = { status: "loading", products: [], blocks: [], closures: [], comunas: [], slots: [], live: null };
+
+// Todo lo que la tienda lee de la base, junto. Sin menú, horario, cierres o
+// comunas no hay tienda que mostrar, así que eso tiene que llegar. Los topes y
+// los cupos tomados no: si fallan las ventanas quedan sin tope, porque un
+// problema de red nunca debe dejar la tienda cerrada por su cuenta.
+async function readStore() {
+  const [products, hours, closures, comunas, limits, load] = await Promise.all([
+    supabase.from("products").select("id, name, description, price, photo_url, has_sauce, sold_out").eq("hidden", false).order("sort_order").order("created_at"),
+    supabase.from("opening_hours").select("weekday, open_hour, close_hour"),
+    supabase.from("closures").select("id, date_from, date_to, reason, notice_url").order("date_from"),
+    supabase.from("comunas").select("name, fee").order("sort_order").order("name"),
+    supabase.from("slot_limits").select("weekday, start_hour, capacity"),
+    supabase.rpc("slot_load"),
+  ]);
+  if (products.error || hours.error || closures.error || comunas.error) return null;
+  return {
+    products: products.data ?? [],
+    blocks: (hours.data ?? [])
+      .map((row) => ({ weekday: row.weekday, label: WEEKDAY_LABELS[row.weekday], openHour: row.open_hour, closeHour: row.close_hour }))
+      .sort((a, b) => WEEKDAY_ORDER.indexOf(a.weekday) - WEEKDAY_ORDER.indexOf(b.weekday)),
+    closures: closures.data ?? [],
+    comunas: comunas.data ?? [],
+    limits: limits.error ? [] : limits.data ?? [],
+    load: load.error ? [] : load.data ?? [],
+  };
 }
 
-function useAvailability() {
-  const [state, setState] = useState(() => ({ slots: getUpcomingSlots(), live: getLiveSlot() }));
+// Se relee cada medio minuto: así un "agotado", un cierre o una ventana que se
+// llenó llegan a quien ya tiene la página abierta. Si una recarga falla se
+// mantiene lo último que se leyó; la validación de verdad la hace create-payment.
+function useStore() {
+  const [state, setState] = useState(EMPTY_STORE);
 
   useEffect(() => {
+    if (!supabase) { setState({ ...EMPTY_STORE, status: "error" }); return; }
     let active = true;
     async function refresh() {
-      const { soldOutDate, limits, load } = await readAvailability();
-      const capacities = new Map(limits.map((row) => [`${row.weekday}|${row.start_hour}`, row.capacity]));
-      const taken = new Map(load.map((row) => [`${row.slot_date}|${row.start_hour}`, row.taken]));
+      let data = null;
+      try { data = await readStore(); } catch { data = null; }
+      if (!active) return;
+      if (!data) {
+        setState((current) => current.status === "ready" ? current : { ...EMPTY_STORE, status: "error" });
+        return;
+      }
+
+      const capacities = new Map(data.limits.map((row) => [`${row.weekday}|${row.start_hour}`, row.capacity]));
+      const taken = new Map(data.load.map((row) => [`${row.slot_date}|${row.start_hour}`, row.taken]));
       // Sin tope configurado la ventana no limita: preferimos vender a cerrar
       // por una fila que falta.
       const decorate = (slot) => {
@@ -201,10 +175,16 @@ function useAvailability() {
       };
 
       const now = getSantiagoNow();
-      const slots = getUpcomingSlots(now).filter((slot) => slot.date !== soldOutDate).map(decorate);
-      const liveSlot = getLiveSlot(now);
-      const live = liveSlot && liveSlot.date !== soldOutDate ? decorate(liveSlot) : null;
-      if (active) setState({ slots, live });
+      const liveSlot = getLiveSlot(now, data.blocks, data.closures);
+      setState({
+        status: "ready",
+        products: data.products,
+        blocks: data.blocks,
+        closures: data.closures,
+        comunas: data.comunas,
+        slots: getUpcomingSlots(now, data.blocks, data.closures).map(decorate),
+        live: liveSlot ? decorate(liveSlot) : null,
+      });
     }
     refresh();
     const id = setInterval(refresh, 30000);
@@ -217,36 +197,19 @@ function useAvailability() {
   return state;
 }
 
-// El menú vive en la tabla products y se edita desde el panel. Se relee cada
-// medio minuto para que un "agotado" llegue a quien ya tiene la página abierta.
-// Si una recarga falla se mantiene lo último que se leyó: la validación de
-// verdad (precio, stock) la hace create-payment.
-function useProducts() {
-  const [state, setState] = useState({ products: [], status: "loading" });
+// Las comunas se muestran agrupadas por tarifa, de la más barata a la más cara.
+function groupComunas(comunas) {
+  const groups = new Map();
+  for (const comuna of comunas) {
+    if (!groups.has(comuna.fee)) groups.set(comuna.fee, { fee: comuna.fee, comunas: [] });
+    groups.get(comuna.fee).comunas.push(comuna.name);
+  }
+  return [...groups.values()].sort((a, b) => a.fee - b.fee);
+}
 
-  useEffect(() => {
-    if (!supabase) { setState({ products: [], status: "error" }); return; }
-    let active = true;
-    async function refresh() {
-      const { data, error } = await supabase
-        .from("products")
-        .select("id, name, description, price, photo_url, has_sauce, sold_out")
-        .eq("hidden", false)
-        .order("sort_order")
-        .order("created_at");
-      if (!active) return;
-      if (error) { setState((current) => current.status === "ready" ? current : { products: [], status: "error" }); return; }
-      setState({ products: data ?? [], status: "ready" });
-    }
-    refresh();
-    const id = setInterval(refresh, 30000);
-    return () => {
-      active = false;
-      clearInterval(id);
-    };
-  }, []);
-
-  return state;
+function formatClosureRange(closure) {
+  const from = formatBlockDate(closure.date_from);
+  return closure.date_from === closure.date_to ? `el ${from}` : `del ${from} al ${formatBlockDate(closure.date_to)}`;
 }
 
 const pesos = new Intl.NumberFormat("es-CL", {
@@ -260,26 +223,62 @@ function formatPrice(price) {
 }
 
 function App() {
-  const { slots, live } = useAvailability();
-  const { products, status: menuStatus } = useProducts();
+  const { status, products, blocks, closures, comunas, slots, live } = useStore();
+  const ready = status === "ready";
   // "Ahora" solo si estamos abiertos y la ventana en curso no se llenó.
   const liveOpen = Boolean(live && !live.full);
   const openSlots = useMemo(() => slots.filter((slot) => !slot.full), [slots]);
   const canOrder = liveOpen || openSlots.length > 0;
+  const comunaGroups = useMemo(() => groupComunas(comunas), [comunas]);
+  const ticker = comunaGroups.length ? [...TICKER, `DESPACHO DESDE ${formatPrice(comunaGroups[0].fee)}`] : TICKER;
+  const today = getSantiagoNow().date;
+  const notices = closures.filter((closure) => closure.notice_url && today <= closure.date_to);
   const [cart, setCart] = useState([]);
   const [cartOpen, setCartOpen] = useState(false);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [headerSolid, setHeaderSolid] = useState(false);
-  const [form, setForm] = useState({ mode: "", slot: "", name: "", phone: "", comuna: COMUNAS[0], address: "" });
+  const [form, setForm] = useState({ mode: "", slot: "", name: "", phone: "", comuna: "", address: "" });
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Lo que hay en el carrito y ya no se puede pedir: se agotó, se ocultó o se
+  // eliminó mientras la página estaba abierta. Hasta que se lea el menú no se
+  // marca nada, para no asustar a nadie por una carga lenta.
+  const unavailableKeys = useMemo(() => {
+    if (!ready) return new Set();
+    const byId = new Map(products.map((product) => [product.id, product]));
+    return new Set(cart.filter((item) => !byId.get(item.productId) || byId.get(item.productId).sold_out).map((item) => item.key));
+  }, [cart, products, ready]);
 
   const cartTotal = useMemo(
     () => cart.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0),
     [cart],
   );
   const cartCount = cart.reduce((sum, item) => sum + item.quantity, 0);
-  const deliveryFee = COMUNA_FEES[form.comuna] ?? 0;
+  const deliveryFee = comunas.find((comuna) => comuna.name === form.comuna)?.fee ?? 0;
   const orderTotal = cartTotal + deliveryFee;
+
+  // Si cambia un precio o un nombre desde el panel, el carrito lo refleja: el
+  // cobro usa el precio de la base y el total no debe sorprender en Mercado Pago.
+  useEffect(() => {
+    if (!ready) return;
+    const byId = new Map(products.map((product) => [product.id, product]));
+    setCart((current) => {
+      let changed = false;
+      const next = current.map((item) => {
+        const product = byId.get(item.productId);
+        if (!product || (product.price === item.unitPrice && product.name === item.product)) return item;
+        changed = true;
+        return { ...item, unitPrice: product.price, product: product.name };
+      });
+      return changed ? next : current;
+    });
+  }, [products, ready]);
+
+  // Primera comuna por defecto, y corrige la elegida si se sacó de la lista.
+  useEffect(() => {
+    if (!comunas.length) return;
+    setForm((current) => comunas.some((comuna) => comuna.name === current.comuna) ? current : { ...current, comuna: comunas[0].name });
+  }, [comunas]);
 
   // Elige solo la opción razonable: al momento si estamos abiertos, si no la
   // primera ventana libre. También corrige la elección que dejó de existir
@@ -357,9 +356,12 @@ function App() {
   async function checkout(event) {
     event.preventDefault();
     if (!canOrder) {
-      alert(pauseActive()
-        ? `No hay horarios de entrega disponibles por ahora. Volvemos el ${REOPEN_LABEL}.`
-        : "No hay horarios de entrega disponibles por ahora. Vuelve a intentarlo más tarde.");
+      alert("No hay horarios de entrega disponibles por ahora. Vuelve a intentarlo más tarde.");
+      return;
+    }
+    const unavailable = cart.filter((item) => unavailableKeys.has(item.key));
+    if (unavailable.length) {
+      alert(`${unavailable.map((item) => item.product).join(", ")} ya no está disponible. Quítalo del carrito para continuar.`);
       return;
     }
     if (!supabase) {
@@ -431,17 +433,18 @@ function App() {
 
         {/* Seis copias idénticas: la pista se corre justo la mitad (tres copias), así
             el loop cierra sin salto y las tres restantes cubren cualquier pantalla.
-            Sin cupos la marquesina se detiene: el aviso no debe pasar de largo. */}
-        {canOrder ? <div className="ticker">
+            Sin cupos la marquesina se detiene: el aviso no debe pasar de largo.
+            Mientras carga se muestra la normal, para no anunciar un cierre que no es. */}
+        {canOrder || !ready ? <div className="ticker">
           <div className="ticker-track">
             {[0, 1, 2, 3, 4, 5].map((copy) => <div className="ticker-set" key={copy} aria-hidden={copy > 0}>
-              {TICKER.map((text) => <span key={text}>{text}<b aria-hidden="true">✦</b></span>)}
+              {ticker.map((text) => <span key={text}>{text}<b aria-hidden="true">✦</b></span>)}
             </div>)}
           </div>
-        </div> : <div className="ticker ticker-closed"><span>{pauseActive() ? `SIN CUPOS POR AHORA · VOLVEMOS EL ${REOPEN_LABEL.toUpperCase()}` : "SIN CUPOS POR AHORA · VUELVE A INTENTARLO MÁS TARDE"}</span></div>}
+        </div> : <div className="ticker ticker-closed"><span>SIN CUPOS POR AHORA · VUELVE A INTENTARLO MÁS TARDE</span></div>}
 
-        {activeNotices().map((range) => <section className="notice shell" key={range.from} aria-label={`Aviso: ${range.reason}`}>
-          <motion.img src={range.notice.image} alt={range.notice.alt} width="1672" height="941" {...cardReveal} />
+        {notices.map((closure) => <section className="notice shell" key={closure.id} aria-label={`Aviso: ${closure.reason || "cierre"}`}>
+          <motion.img src={closure.notice_url} alt={`No atendemos ${formatClosureRange(closure)}${closure.reason ? ` por ${closure.reason}` : ""}.`} {...cardReveal} />
         </section>)}
 
         <section className="menu shell" id="menu">
@@ -450,8 +453,8 @@ function App() {
             <h2>Tu antojo comienza aquí.</h2>
             <p>Elige una porción, dinos cómo la quieres y agrégala al carrito.</p>
           </div>
-          {menuStatus === "loading" ? <p className="menu-status">Cargando el menú…</p> : null}
-          {menuStatus === "error" ? <p className="menu-status">No pudimos cargar el menú. Actualiza la página para intentarlo de nuevo.</p> : null}
+          {status === "loading" ? <p className="menu-status">Cargando el menú…</p> : null}
+          {status === "error" ? <p className="menu-status">No pudimos cargar el menú. Actualiza la página para intentarlo de nuevo.</p> : null}
           {/* La última tarjeta ocupa todo el ancho solo si queda sola en su fila. */}
           <div className="menu-grid">
             {products.map((product, index) => <ProductCard key={product.id} product={product} onAdd={addProduct} canOrder={canOrder} wide={products.length % 2 === 1 && index === products.length - 1} />)}
@@ -467,7 +470,7 @@ function App() {
             <p>Si estamos abiertos, lo preparamos y sale de inmediato. Si no, preordena cualquier día de la semana y elige tu ventana horaria.</p>
           </div>
           <div className="hours-grid">
-            {BLOCKS.map((block) => <div className={live?.weekday === block.weekday ? "hour is-open" : "hour"} key={block.weekday}>
+            {blocks.map((block) => <div className={live?.weekday === block.weekday ? "hour is-open" : "hour"} key={block.weekday}>
               <strong>{block.label}</strong>
               <span>{block.openHour}:00 — {block.closeHour}:00</span>
               {live?.weekday === block.weekday ? <em>Abierto ahora</em> : null}
@@ -475,7 +478,7 @@ function App() {
           </div>
           <p className="coverage-label">DESPACHO SEGÚN TU COMUNA</p>
           <div className="coverage-grid">
-            {COMUNA_GROUPS.map((group) => <div className="tier" key={group.fee}>
+            {comunaGroups.map((group) => <div className="tier" key={group.fee}>
               <strong>{formatPrice(group.fee)}</strong>
               <small>DESPACHO</small>
               <p>{group.comunas.join(" · ")}</p>
@@ -511,8 +514,8 @@ function App() {
       </AnimatePresence>
 
       <AnimatePresence>
-        {cartOpen && <Cart key="cart" cart={cart} total={cartTotal} onClose={() => setCartOpen(false)} onQuantity={changeQuantity} onCheckout={() => { setCartOpen(false); setCheckoutOpen(true); }} />}
-        {checkoutOpen && <Checkout key="checkout" subtotal={cartTotal} deliveryFee={deliveryFee} total={orderTotal} form={form} setForm={setForm} isSubmitting={isSubmitting} slots={slots} live={live} liveOpen={liveOpen} canOrder={canOrder} onClose={() => setCheckoutOpen(false)} onSubmit={checkout} />}
+        {cartOpen && <Cart key="cart" cart={cart} total={cartTotal} unavailableKeys={unavailableKeys} onClose={() => setCartOpen(false)} onQuantity={changeQuantity} onCheckout={() => { setCartOpen(false); setCheckoutOpen(true); }} />}
+        {checkoutOpen && <Checkout key="checkout" subtotal={cartTotal} deliveryFee={deliveryFee} total={orderTotal} form={form} setForm={setForm} isSubmitting={isSubmitting} slots={slots} live={live} liveOpen={liveOpen} canOrder={canOrder} comunaGroups={comunaGroups} onClose={() => setCheckoutOpen(false)} onSubmit={checkout} />}
       </AnimatePresence>
     </MotionConfig>
   );
@@ -540,16 +543,20 @@ function ProductCard({ product, onAdd, canOrder, wide }) {
   </motion.article>;
 }
 
-function Cart({ cart, total, onClose, onQuantity, onCheckout }) {
+function Cart({ cart, total, unavailableKeys, onClose, onQuantity, onCheckout }) {
+  const blocked = unavailableKeys.size > 0;
   return <motion.div className="overlay" role="presentation" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.2 }}>
     <motion.aside className="cart" role="dialog" aria-modal="true" aria-label="Tu carrito" initial={{ x: "100%" }} animate={{ x: 0 }} exit={{ x: "100%" }} transition={drawerTransition}>
       <div className="drawer-header"><h2>Tu pedido</h2><button onClick={onClose} aria-label="Cerrar carrito">×</button></div>
-      {cart.length === 0 ? <div className="empty"><p>Aún no agregas nada.</p><button onClick={() => { onClose(); document.getElementById("menu")?.scrollIntoView(); }}>Ver el menú</button></div> : <><div className="cart-items"><AnimatePresence initial={false}>{cart.map((item) => <motion.div className="cart-item" key={item.key} layout initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, x: 24 }} transition={{ duration: 0.25 }}><div><strong>{item.product}</strong>{item.sauce ? <p>{item.sauce}</p> : null}<b>{formatPrice(item.unitPrice * item.quantity)}</b></div><div className="quantity"><motion.button whileTap={{ scale: 0.85 }} onClick={() => onQuantity(item.key, -1)}>−</motion.button><span>{item.quantity}</span><motion.button whileTap={{ scale: 0.85 }} onClick={() => onQuantity(item.key, 1)}>+</motion.button></div></motion.div>)}</AnimatePresence></div><div className="cart-total"><span>Total</span><strong>{formatPrice(total)}</strong></div><motion.button className="primary-button checkout" whileTap={{ scale: 0.97 }} onClick={onCheckout}>Continuar al pago <span>→</span></motion.button></>}
+      {cart.length === 0 ? <div className="empty"><p>Aún no agregas nada.</p><button onClick={() => { onClose(); document.getElementById("menu")?.scrollIntoView(); }}>Ver el menú</button></div> : <><div className="cart-items"><AnimatePresence initial={false}>{cart.map((item) => {
+        const unavailable = unavailableKeys.has(item.key);
+        return <motion.div className={unavailable ? "cart-item is-unavailable" : "cart-item"} key={item.key} layout initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, x: 24 }} transition={{ duration: 0.25 }}><div><strong>{item.product}</strong>{item.sauce ? <p>{item.sauce}</p> : null}{unavailable ? <p className="cart-item-warning">Se agotó · quítalo para continuar</p> : null}<b>{formatPrice(item.unitPrice * item.quantity)}</b></div><div className="quantity"><motion.button whileTap={{ scale: 0.85 }} onClick={() => onQuantity(item.key, unavailable ? -item.quantity : -1)} aria-label={unavailable ? `Quitar ${item.product}` : `Quitar uno de ${item.product}`}>{unavailable ? "×" : "−"}</motion.button><span>{item.quantity}</span><motion.button whileTap={unavailable ? undefined : { scale: 0.85 }} disabled={unavailable} onClick={() => onQuantity(item.key, 1)} aria-label={`Agregar uno de ${item.product}`}>+</motion.button></div></motion.div>;
+      })}</AnimatePresence></div><div className="cart-total"><span>Total</span><strong>{formatPrice(total)}</strong></div>{blocked ? <p className="cart-blocked">Hay productos que se agotaron. Quítalos para continuar.</p> : null}<motion.button className="primary-button checkout" disabled={blocked} whileTap={blocked ? undefined : { scale: 0.97 }} onClick={onCheckout}>Continuar al pago <span>→</span></motion.button></>}
     </motion.aside>
   </motion.div>;
 }
 
-function Checkout({ subtotal, deliveryFee, total, form, setForm, isSubmitting, slots, live, liveOpen, canOrder, onClose, onSubmit }) {
+function Checkout({ subtotal, deliveryFee, total, form, setForm, isSubmitting, slots, live, liveOpen, canOrder, comunaGroups, onClose, onSubmit }) {
   function update(event) { setForm({ ...form, [event.target.name]: event.target.value }); }
   return <motion.div className="overlay" role="presentation" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.2 }}>
     <motion.section className="checkout-modal" role="dialog" aria-modal="true" aria-label="Finalizar pedido" initial={{ x: "100%" }} animate={{ x: 0 }} exit={{ x: "100%" }} transition={drawerTransition}>
@@ -566,8 +573,8 @@ function Checkout({ subtotal, deliveryFee, total, form, setForm, isSubmitting, s
       </div></fieldset>
       {form.mode === "ahora"
         ? <p className="mode-note">Empezamos a prepararlo apenas confirmes el pago. Llega en <strong>{ASAP_MIN}-{ASAP_MAX} minutos</strong> aproximadamente.</p>
-        : <label>Ventana de entrega{canOrder ? <select required name="slot" value={form.slot} onChange={update}>{slots.map((slot) => <option key={slotKey(slot)} value={slotKey(slot)} disabled={slot.full}>{slot.label} {formatBlockDate(slot.date)} · {slot.startHour}:00-{slot.endHour}:00{slot.full ? " · agotado" : ""}</option>)}</select> : <select disabled><option>No disponible por ahora</option></select>}<small>Te llega dentro de esa ventana. Puedes pedir hoy para cualquier día del fin de semana.</small></label>}
-      <label>Nombre<input required maxLength={100} name="name" value={form.name} onChange={update} placeholder="Tu nombre" /></label><label>Teléfono<input required maxLength={30} type="tel" name="phone" value={form.phone} onChange={update} placeholder="+56 9 ..." /></label><label>Comuna<select name="comuna" value={form.comuna} onChange={update}>{COMUNA_GROUPS.map((group) => <optgroup label={`Despacho ${formatPrice(group.fee)}`} key={group.fee}>{group.comunas.map((comuna) => <option key={comuna}>{comuna}</option>)}</optgroup>)}</select><small>El valor del despacho cambia según la comuna. Solo despachamos a las que aparecen en la lista.</small></label><label>Dirección<input required maxLength={200} name="address" value={form.address} onChange={update} placeholder="Calle, número y depto/casa" /></label><div className="payment-box">{canOrder ? <><span>Método de pago</span><strong>Pago online seguro con Mercado Pago</strong><small>Te redirigiremos para completar el pago.</small></> : <><span>Sin cupos disponibles</span><strong>No estamos recibiendo pedidos por ahora</strong><small>Vuelve a intentarlo más tarde.</small></>}</div><div className="checkout-subtotal"><span>Subtotal</span><span>{formatPrice(subtotal)}</span></div><div className="checkout-subtotal"><span>Despacho</span><span>{formatPrice(deliveryFee)}</span></div><div className="checkout-total"><span>Total del pedido</span><strong>{formatPrice(total)}</strong></div><motion.button className="primary-button checkout" type="submit" disabled={isSubmitting || !canOrder} whileTap={!isSubmitting && canOrder ? { scale: 0.97 } : undefined}>{isSubmitting ? "Abriendo pago..." : "Ir a pagar"} <span>→</span></motion.button><p className="secure-note">No almacenamos datos de tu tarjeta.</p></form>
+        : <label>Ventana de entrega{canOrder ? <select required name="slot" value={form.slot} onChange={update}>{slots.map((slot) => <option key={slotKey(slot)} value={slotKey(slot)} disabled={slot.full}>{slot.label} {formatBlockDate(slot.date)} · {slot.startHour}:00-{slot.endHour}:00{slot.full ? " · agotado" : ""}</option>)}</select> : <select disabled><option>No disponible por ahora</option></select>}<small>Te llega dentro de esa ventana. Puedes pedir hoy para cualquier día que atendemos.</small></label>}
+      <label>Nombre<input required maxLength={100} name="name" value={form.name} onChange={update} placeholder="Tu nombre" /></label><label>Teléfono<input required maxLength={30} type="tel" name="phone" value={form.phone} onChange={update} placeholder="+56 9 ..." /></label><label>Comuna<select required name="comuna" value={form.comuna} onChange={update}>{comunaGroups.map((group) => <optgroup label={`Despacho ${formatPrice(group.fee)}`} key={group.fee}>{group.comunas.map((comuna) => <option key={comuna}>{comuna}</option>)}</optgroup>)}</select><small>El valor del despacho cambia según la comuna. Solo despachamos a las que aparecen en la lista.</small></label><label>Dirección<input required maxLength={200} name="address" value={form.address} onChange={update} placeholder="Calle, número y depto/casa" /></label><div className="payment-box">{canOrder ? <><span>Método de pago</span><strong>Pago online seguro con Mercado Pago</strong><small>Te redirigiremos para completar el pago.</small></> : <><span>Sin cupos disponibles</span><strong>No estamos recibiendo pedidos por ahora</strong><small>Vuelve a intentarlo más tarde.</small></>}</div><div className="checkout-subtotal"><span>Subtotal</span><span>{formatPrice(subtotal)}</span></div><div className="checkout-subtotal"><span>Despacho</span><span>{formatPrice(deliveryFee)}</span></div><div className="checkout-total"><span>Total del pedido</span><strong>{formatPrice(total)}</strong></div><motion.button className="primary-button checkout" type="submit" disabled={isSubmitting || !canOrder} whileTap={!isSubmitting && canOrder ? { scale: 0.97 } : undefined}>{isSubmitting ? "Abriendo pago..." : "Ir a pagar"} <span>→</span></motion.button><p className="secure-note">No almacenamos datos de tu tarjeta.</p></form>
     </motion.section>
   </motion.div>;
 }
