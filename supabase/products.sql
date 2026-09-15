@@ -85,3 +85,11 @@ on storage.objects
 for delete
 to authenticated
 using (bucket_id = 'product-photos' and (select auth.jwt()->>'email') = 'lucianorivas1116@gmail.com');
+
+-- Borrar una foto exige también poder leerla: sin esta política el borrado no
+-- falla, simplemente no borra nada y la foto queda huérfana en el bucket.
+create policy "Admin can read product photos"
+on storage.objects
+for select
+to authenticated
+using (bucket_id = 'product-photos' and (select auth.jwt()->>'email') = 'lucianorivas1116@gmail.com');
