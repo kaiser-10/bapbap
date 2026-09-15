@@ -112,13 +112,26 @@ const REOPEN_LABEL = "sábado 22 de agosto";
 // tapa solo el rango y deja intacto lo de antes y lo de después: sirve para
 // cerrar el fin de semana que viene sin tocar el de esta semana. Ambos
 // extremos incluidos, hora de Santiago. Al pasar la última fecha vuelve solo.
-// Debe coincidir con CLOSED_RANGES en create-payment.
+// Debe coincidir con CLOSED_RANGES en create-payment. `notice` es opcional: la
+// imagen que avisa el cierre, visible desde ya hasta el último día del rango.
 const CLOSED_RANGES = [
-  { from: "2026-09-18", to: "2026-09-20", reason: "Fiestas Patrias" },
+  {
+    from: "2026-09-18",
+    to: "2026-09-20",
+    reason: "Fiestas Patrias",
+    notice: {
+      image: "/photos/aviso-fiestas-patrias.jpg",
+      alt: "18, 19 y 20 de septiembre no vamos a trabajar por las Fiestas Patrias, para que todos podamos disfrutar de este feriado. ¡Viva Chile!",
+    },
+  },
 ];
 
 function isClosedDate(date) {
   return CLOSED_RANGES.some((range) => date >= range.from && date <= range.to);
+}
+
+function activeNotices(now = getSantiagoNow()) {
+  return CLOSED_RANGES.filter((range) => range.notice && now.date <= range.to);
 }
 
 // La tienda puede quedarse sin ventanas por dos motivos distintos: la pausa
@@ -450,6 +463,10 @@ function App() {
             </div>)}
           </div>
         </div> : <div className="ticker ticker-closed"><span>{pauseActive() ? `SIN CUPOS POR AHORA · VOLVEMOS EL ${REOPEN_LABEL.toUpperCase()}` : "SIN CUPOS POR AHORA · VUELVE A INTENTARLO MÁS TARDE"}</span></div>}
+
+        {activeNotices().map((range) => <section className="notice shell" key={range.from} aria-label={`Aviso: ${range.reason}`}>
+          <motion.img src={range.notice.image} alt={range.notice.alt} width="1672" height="941" {...cardReveal} />
+        </section>)}
 
         <section className="menu shell" id="menu">
           <div className="section-head reveal">

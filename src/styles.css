@@ -89,6 +89,9 @@ main>section{scroll-margin-top:98px}
 @media(prefers-reduced-motion:reduce){.ticker-track{animation:none}}
 
 /* ---------- Menú ---------- */
+.notice{background:var(--cream);padding-top:clamp(40px,6vw,76px)}
+.notice img{display:block;width:100%;max-width:980px;height:auto;margin:0 auto;border-radius:clamp(14px,2.4vw,26px);box-shadow:0 18px 44px -18px rgba(23,13,12,.28)}
+
 .menu{padding-top:clamp(76px,10vw,132px);padding-bottom:clamp(80px,10vw,140px);background:var(--cream);position:relative}
 .section-head{max-width:720px;margin-bottom:clamp(44px,6vw,72px)}
 .section-tag{display:block;color:var(--red);font-size:.73rem;font-weight:700;letter-spacing:.18em;margin-bottom:16px}
