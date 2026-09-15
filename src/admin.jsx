@@ -88,14 +88,6 @@ function nextOccurrence(block, now) {
   return addDays(now.date, alreadyClosed ? 7 : diff);
 }
 
-// El "agotado" se guarda como la fecha del bloque de entrega más próximo (el
-// que se está por preparar), en hora de Santiago: así la tienda se reactiva
-// sola apenas pase ese bloque.
-function nextBlockDate() {
-  const now = getSantiagoNow();
-  return BLOCKS.map((block) => nextOccurrence(block, now)).sort()[0];
-}
-
 // Encabeza cada jornada de entrega. Se arma sobre mediodía UTC para que la
 // fecha no se corra un día al formatear.
 function formatDate(dateStr, options) {
@@ -228,8 +220,6 @@ function Admin() {
   const [error, setError] = useState("");
   const [filter, setFilter] = useState("todos");
   const [unseen, setUnseen] = useState(0);
-  const [soldOut, setSoldOut] = useState(false);
-  const [savingSoldOut, setSavingSoldOut] = useState(false);
   // Los cupos y los productos van plegados: se tocan de vez en cuando y el
   // panel es para despachar pedidos, no para configurarlos.
   const [showSlots, setShowSlots] = useState(false);
@@ -267,31 +257,7 @@ function Admin() {
     if (!silent) setLoading(false);
   }
 
-  async function loadSoldOut() {
-    const { data } = await supabase.from("store_settings").select("sold_out_on").maybeSingle();
-    setSoldOut(data?.sold_out_on === nextBlockDate());
-  }
-
-  async function toggleSoldOut() {
-    const next = soldOut ? null : nextBlockDate();
-    const aviso = next
-      ? "¿Marcar el próximo bloque como AGOTADO? Dejará de aparecer como opción de reserva."
-      : "¿Reactivar ese bloque? Volverá a aparecer como opción de reserva.";
-    if (!window.confirm(aviso)) return;
-
-    setSavingSoldOut(true);
-    const { error: requestError } = await supabase
-      .from("store_settings")
-      .update({ sold_out_on: next, updated_at: new Date().toISOString() })
-      .eq("id", true);
-    setSavingSoldOut(false);
-
-    if (requestError) { setError("No pudimos cambiar la disponibilidad. Inténtalo otra vez."); return; }
-    setError("");
-    setSoldOut(Boolean(next));
-  }
-
-  useEffect(() => { if (session) { loadOrders(); loadSoldOut(); } }, [session]);
+  useEffect(() => { if (session) loadOrders(); }, [session]);
 
   useEffect(() => {
     if (!session) return;
@@ -324,9 +290,8 @@ function Admin() {
 
   return <main className="admin-shell">
     {unseen > 0 && <button className="new-order-alert" onClick={() => setUnseen(0)}>🔔 {unseen === 1 ? "1 pedido nuevo" : `${unseen} pedidos nuevos`} · toca para silenciar</button>}
-    {soldOut && <p className="sold-out-notice">🛑 El próximo bloque de entrega está marcado como <strong>agotado</strong> y no aparece para reservar. Se reactiva solo apenas pase ese bloque.</p>}
     <header className="admin-header"><a className="brand" href="/"><strong>bapbap</strong></a><div><span className="admin-clock">{formatTime(now)}</span><span className="admin-email">{session.user.email}</span><button className="link-button" onClick={() => supabase.auth.signOut()}>Cerrar sesión</button></div></header>
-    <section className="admin-intro"><div><p className="eyebrow">ADMINISTRACIÓN</p><h1>Pedidos</h1><p>Revisa, confirma y prepara cada pedido desde un solo lugar.</p></div><div className="admin-actions"><button className={soldOut ? "sold-out-button active" : "sold-out-button"} onClick={toggleSoldOut} disabled={savingSoldOut}>{savingSoldOut ? "Guardando…" : soldOut ? "✅ Reactivar ventas" : "🛑 Marcar agotado"}</button><button className={showProducts ? "refresh-button active" : "refresh-button"} onClick={() => setShowProducts((open) => !open)}>🍗 Productos</button><button className={showSlots ? "refresh-button active" : "refresh-button"} onClick={() => setShowSlots((open) => !open)}>🗓️ Cupos</button><button className="refresh-button" onClick={playAlert}>🔔 Probar sonido</button><button className="refresh-button" onClick={() => loadOrders()}>↻ Actualizar</button></div></section>
+    <section className="admin-intro"><div><p className="eyebrow">ADMINISTRACIÓN</p><h1>Pedidos</h1><p>Revisa, confirma y prepara cada pedido desde un solo lugar.</p></div><div className="admin-actions"><button className={showProducts ? "refresh-button active" : "refresh-button"} onClick={() => setShowProducts((open) => !open)}>🍗 Productos</button><button className={showSlots ? "refresh-button active" : "refresh-button"} onClick={() => setShowSlots((open) => !open)}>🗓️ Cupos</button><button className="refresh-button" onClick={playAlert}>🔔 Probar sonido</button><button className="refresh-button" onClick={() => loadOrders()}>↻ Actualizar</button></div></section>
     {showProducts && <Products onError={setError} />}
     {showSlots && <SlotLimits onError={setError} ordersVersion={ordersVersion} />}
     <section className="admin-stats"><span>Hoy <strong>{pesos.format(salesToday)}</strong></span><span>Semana <strong>{pesos.format(salesWeek)}</strong></span><span>Total <strong>{orders.length}</strong></span><span>Nuevos <strong className="highlight">{newCount}</strong></span><span>Preparando <strong>{orders.filter((order) => order.status === "preparando").length}</strong></span></section>
