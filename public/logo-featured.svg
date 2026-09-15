@@ -2,7 +2,7 @@
 <svg id="Capa_1" data-name="Capa 1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 462.45 256.38">
   <defs>
     <style>
-      .cls-1, .cls-2, .cls-3, .cls-4 {
+      .cls-1, .cls-2, .cls-4 {
         fill: none;
       }
 
@@ -26,7 +26,7 @@
         fill: #e94e1b;
       }
 
-      .cls-12, .cls-6, .cls-7, .cls-9, .cls-10 {
+      .cls-12, .cls-3, .cls-6, .cls-7, .cls-9, .cls-10 {
         fill: #fff;
       }
 
