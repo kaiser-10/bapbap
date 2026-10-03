@@ -154,9 +154,10 @@ function slotChip(order) {
 }
 
 // Agrupa por jornada de entrega (no por cuándo se hizo el pedido), para que el
-// panel muestre de una qué hay que preparar cada día, y dentro de cada jornada
-// ordena por ventana: así la lista va en el orden en que hay que cocinar. Los
-// pedidos sin reserva (de antes de esta función) quedan aparte al final.
+// panel muestre de una qué hay que preparar cada día. Dentro de cada jornada va
+// primero el pedido más nuevo: lo que acaba de entrar es lo que hay que mirar, y
+// la hora de entrega ya se ve en cada fila. Los pedidos sin reserva (de antes de
+// esta función) quedan aparte al final.
 function groupByReservation(orders) {
   const groups = new Map();
   for (const order of orders) {
@@ -165,7 +166,7 @@ function groupByReservation(orders) {
     groups.get(key).orders.push(order);
   }
   for (const group of groups.values()) {
-    group.orders.sort((a, b) => (a.reserved_start ?? 99) - (b.reserved_start ?? 99) || a.created_at.localeCompare(b.created_at));
+    group.orders.sort((a, b) => b.created_at.localeCompare(a.created_at));
   }
   return [...groups.values()].sort((a, b) => {
     if (!a.date) return 1;
