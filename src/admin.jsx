@@ -458,6 +458,7 @@ function Products({ onError }) {
   const [products, setProducts] = useState(null);
   const [editing, setEditing] = useState(null);
   const [busy, setBusy] = useState("");
+  const [reordering, setReordering] = useState(false);
 
   const load = useCallback(async () => {
     const { data, error } = await supabase.from("products").select("*").order("sort_order").order("created_at");
@@ -487,6 +488,28 @@ function Products({ onError }) {
     setProducts((current) => current.filter((item) => item.id !== product.id));
   }
 
+  // Sube o baja un producto un lugar. Se renumera toda la lista de 10 en 10
+  // porque dos productos pueden compartir número, y ahí un simple intercambio
+  // no movería nada. Solo se guardan las filas cuyo número cambió.
+  async function move(index, step) {
+    const target = index + step;
+    if (target < 0 || target >= products.length) return;
+    const swapped = [...products];
+    [swapped[index], swapped[target]] = [swapped[target], swapped[index]];
+    const renumbered = swapped.map((item, position) => ({ ...item, sort_order: (position + 1) * 10 }));
+    const changed = renumbered.filter((item, position) => item.sort_order !== swapped[position].sort_order);
+    setProducts(renumbered);
+    setReordering(true);
+    const results = await Promise.all(changed.map((item) => supabase.from("products").update({ sort_order: item.sort_order }).eq("id", item.id)));
+    setReordering(false);
+    if (results.some((result) => result.error)) {
+      onError("No pudimos guardar el nuevo orden. Inténtalo otra vez.");
+      load();
+      return;
+    }
+    onError("");
+  }
+
   function saved() {
     setEditing(null);
     load();
@@ -497,14 +520,18 @@ function Products({ onError }) {
 
   return <section className="products-panel">
     <div className="products-head">
-      <p className="slot-limits-note">Lo que marques acá se ve en la tienda en menos de un minuto. <strong>Agotado</strong> lo deja visible pero sin poder pedirlo; <strong>Ocultar</strong> lo saca del menú.</p>
+      <p className="slot-limits-note">Lo que marques acá se ve en la tienda en menos de un minuto. <strong>Agotado</strong> lo deja visible pero sin poder pedirlo; <strong>Ocultar</strong> lo saca del menú. Con las flechas ▲▼ cambias el orden en que aparecen las tarjetas.</p>
       {editing ? null : <button className="login-button product-new" onClick={() => setEditing("new")}>+ Agregar producto</button>}
     </div>
     {editing === "new" ? <ProductForm sortOrder={nextSortOrder} onCancel={() => setEditing(null)} onSaved={saved} /> : null}
     <div className="product-list">
-      {products.map((product) => editing?.id === product.id
+      {products.map((product, index) => editing?.id === product.id
         ? <ProductForm key={product.id} product={product} onCancel={() => setEditing(null)} onSaved={saved} />
         : <div className={product.hidden ? "product-row is-hidden" : "product-row"} key={product.id}>
+          <div className="product-move">
+            <button type="button" disabled={index === 0 || reordering} onClick={() => move(index, -1)} aria-label={`Subir ${product.name}`}>▲</button>
+            <button type="button" disabled={index === products.length - 1 || reordering} onClick={() => move(index, 1)} aria-label={`Bajar ${product.name}`}>▼</button>
+          </div>
           <div className="product-thumb">{product.photo_url ? <img src={product.photo_url} alt="" /> : null}</div>
           <div className="product-info">
             <strong>{product.name}</strong>
